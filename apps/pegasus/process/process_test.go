@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	"racing_wagering/apps/pegasus/core"
-	"racing_wagering/apps/pegasus/dispatch"
-	"racing_wagering/apps/pegasus/process"
-	"racing_wagering/apps/pegasus/settings"
-	"racing_wagering/apps/pegasus/tpd"
-	"racing_wagering/betting"
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/engine"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/dispatch"
+	"pegasus_suite/apps/pegasus/process"
+	"pegasus_suite/apps/pegasus/settings"
+	"pegasus_suite/apps/pegasus/tpd"
+	"pegasus_suite/betting"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/engine"
 )
 
 // recorder stands in for a bookmaker session.

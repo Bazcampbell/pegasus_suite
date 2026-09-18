@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"racing_wagering/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/core"
 
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting/betmatic"
 )
 
 // stubList answers the way the race list would for the two courses the

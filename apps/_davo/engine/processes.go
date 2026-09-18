@@ -3,12 +3,12 @@
 package engine
 
 import (
-	"racing_wagering/apps/davo/tenant"
+	"pegasus_suite/apps/davo/tenant"
 	"fmt"
 
-	"racing_wagering/betting"
+	"pegasus_suite/betting"
 	betengine "github.com/Bazcampbell/bazbet-sdk/engine"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 func (e *Engine) AddProcess(userID, processID string) error {

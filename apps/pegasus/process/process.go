@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"sync"
 
-	"racing_wagering/apps/pegasus/core"
-	"racing_wagering/apps/pegasus/dispatch"
-	"racing_wagering/apps/pegasus/settings"
-	"racing_wagering/apps/pegasus/strategy"
-	"racing_wagering/logger"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/dispatch"
+	"pegasus_suite/apps/pegasus/settings"
+	"pegasus_suite/apps/pegasus/strategy"
+	"pegasus_suite/logger"
 )
 
 type Process struct {

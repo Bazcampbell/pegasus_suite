@@ -4,10 +4,10 @@ package engine
 
 import (
 	"crypto/sha256"
-	"racing_wagering/apps/davo/telegram"
+	"pegasus_suite/apps/davo/telegram"
 	"encoding/hex"
 	"fmt"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 	"sync"
 	"time"
 )

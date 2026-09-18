@@ -5,7 +5,7 @@ package strategy
 import (
 	"time"
 
-	triples "racing_wagering/apps/pegasus/triples"
+	triples "pegasus_suite/apps/pegasus/triples"
 )
 
 // forwardProgressState is per race, held by a Triple-S strategy. initial is the

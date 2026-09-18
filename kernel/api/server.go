@@ -11,16 +11,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
+	"strings"
 	"time"
 
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/clients"
-	"racing_wagering/kernel"
-	"racing_wagering/logger"
-	"racing_wagering/platform/auth"
-	"racing_wagering/platform/util"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/clients"
+	"pegasus_suite/kernel"
+	"pegasus_suite/logger"
+	"pegasus_suite/platform/auth"
+	"pegasus_suite/platform/util"
 )
 
 type Server struct {
@@ -32,12 +32,8 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func NewServer(port, jwkURL string, k *kernel.Kernel) (*Server, error) {
-	verifier, err := auth.NewVerifier(auth.Config{
-		URL:      jwkURL,
-		Issuer:   os.Getenv("JWT_ISSUER"),
-		Audience: os.Getenv("JWT_AUDIENCE"),
-	})
+func NewServer(port string, authCfg auth.Config, k *kernel.Kernel) (*Server, error) {
+	verifier, err := auth.NewVerifier(authCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +65,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) routes() {
-	// Any authenticated user, on their own processes of one application.
+	// any authenticated user
+	// only on their own process
 	authed := []struct {
 		pattern string
 		handler http.HandlerFunc
@@ -80,6 +77,10 @@ func (s *Server) routes() {
 		{"POST /api/{app}/restart", s.processOp("restarted", s.kernel.RestartProcess)},
 		{"POST /api/{app}/delete", s.processOp("deleted", s.kernel.DeleteProcess)},
 		{"GET /api/{app}/status", s.handleProcessStatus},
+		{"GET /api/{app}/processes", s.handleListProcesses},
+		{"GET /api/{app}/settings", s.handleGetProcessSettings},
+		{"PUT /api/{app}/settings", s.handlePutProcessSettings},
+		{"DELETE /api/{app}/settings", s.handleDeleteProcessSettings},
 		{"GET /api/betting/bookmakers", s.handleGetBookmakers},
 		{"GET /api/logs", s.handleLogs},
 	}
@@ -87,7 +88,7 @@ func (s *Server) routes() {
 		s.mux.Handle(r.pattern, auth.RequireAuth(s.jwks, r.handler))
 	}
 
-	// Admin only — the whole runtime.
+	// actual runtime
 	adminOnly := []struct {
 		pattern string
 		handler http.HandlerFunc
@@ -96,6 +97,8 @@ func (s *Server) routes() {
 		{"POST /api/system/stop", s.systemOp("stopped", s.kernel.Stop)},
 		{"POST /api/system/restart", s.systemOp("restarted", s.kernel.Restart)},
 		{"GET /api/system/status", s.handleSystemStatus},
+		{"GET /api/system/settings/{name}", s.handleGetAppSettings},
+		{"PUT /api/system/settings/{name}", s.handlePutAppSettings},
 	}
 	for _, r := range adminOnly {
 		s.mux.Handle(r.pattern, auth.RequireRole(s.jwks, "admin", r.handler))
@@ -106,32 +109,66 @@ func (s *Server) routes() {
 	})
 }
 
-// processKey pulls the application, the caller, and the process off the
-// request, writing the 4xx if anything is missing.
-func (s *Server) processKey(w http.ResponseWriter, r *http.Request) (clients.ProcessKey, bool) {
-	app := r.PathValue("app")
+// appUser pulls the application and the user acted for. Users act on their
+// own processes; an admin acts for any user by naming them with userId, and
+// anyone else naming a user other than themselves is refused. Writes the 4xx
+// and returns false if anything is wrong.
+func (s *Server) appUser(w http.ResponseWriter, r *http.Request) (app, userID string, ok bool) {
+	app = r.PathValue("app")
 	if !s.kernel.HasApp(app) {
 		http.Error(w, "unknown application", http.StatusNotFound)
-		return clients.ProcessKey{}, false
+		return "", "", false
 	}
 
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return "", "", false
+	}
+
+	userID = claims.UserID()
+	if asked := r.URL.Query().Get("userId"); asked != "" && asked != userID {
+		if !claims.IsAdmin() {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return "", "", false
+		}
+		if msg := checkID(asked); msg != "" {
+			http.Error(w, "user ID "+msg, http.StatusBadRequest)
+			return "", "", false
+		}
+		userID = asked
+	}
+	return app, userID, true
+}
+
+// processKey is appUser plus the processId. Returns 4xx if anything missing.
+func (s *Server) processKey(w http.ResponseWriter, r *http.Request) (clients.ProcessKey, bool) {
+	app, userID, ok := s.appUser(w, r)
+	if !ok {
 		return clients.ProcessKey{}, false
 	}
 
 	processID := r.URL.Query().Get("processId")
-	if processID == "" {
-		http.Error(w, "process ID missing", http.StatusBadRequest)
-		return clients.ProcessKey{}, false
-	}
-	if len(processID) > 128 {
-		http.Error(w, "process ID too long", http.StatusBadRequest)
+	if msg := checkID(processID); msg != "" {
+		http.Error(w, "process ID "+msg, http.StatusBadRequest)
 		return clients.ProcessKey{}, false
 	}
 
-	return clients.ProcessKey{App: app, UserID: claims.UserID(), ProcessID: processID}, true
+	return clients.ProcessKey{App: app, UserID: userID, ProcessID: processID}, true
+}
+
+// checkID keeps an ID to one segment of a storage key. It returns what is
+// wrong with it, or "".
+func checkID(id string) string {
+	switch {
+	case id == "":
+		return "missing"
+	case len(id) > 128:
+		return "too long"
+	case strings.ContainsAny(id, `/\`) || strings.Contains(id, ".."):
+		return "invalid"
+	}
+	return ""
 }
 
 func (s *Server) processOp(done string, op func(clients.ProcessKey) error) http.HandlerFunc {
@@ -249,8 +286,14 @@ func errStatus(err error) int {
 	case errors.Is(err, kernel.ErrAlreadyRunning), errors.Is(err, kernel.ErrNotRunning),
 		errors.Is(err, kernel.ErrAppDown), errors.Is(err, kernel.ErrExists):
 		return http.StatusConflict
-	case errors.Is(err, kernel.ErrNotFound), errors.Is(err, kernel.ErrUnknownApp), errors.Is(err, kernel.ErrNoSettings):
+	case errors.Is(err, kernel.ErrNotFound), errors.Is(err, kernel.ErrUnknownApp), errors.Is(err, kernel.ErrNoSettings),
+		errors.Is(err, kernel.ErrUnknownSettings):
 		return http.StatusNotFound
+	case errors.Is(err, kernel.ErrInvalidSettings):
+		return http.StatusBadRequest
+	case errors.Is(err, kernel.ErrNotReloaded):
+		// saved, but the process did not come back: the caller must see it
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

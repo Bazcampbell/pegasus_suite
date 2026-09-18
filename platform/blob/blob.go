@@ -1,8 +1,6 @@
 // platform/blob/blob.go
-//
-// One small object-store interface with two backends: a directory on disk for
-// development and S3 for real. Settings documents and the log archive both
-// live behind it, so the layout is written once.
+
+// interface for filesystem settings and AWS s3 settings
 
 package blob
 
@@ -17,12 +15,9 @@ import (
 var ErrNotFound = errors.New("blob: not found")
 
 type Bucket interface {
-	// Get returns the object, or ErrNotFound.
 	Get(ctx context.Context, key string) ([]byte, error)
 	Put(ctx context.Context, key string, body []byte) error
 	Delete(ctx context.Context, key string) error
-
-	// List returns every key under prefix.
 	List(ctx context.Context, prefix string) ([]string, error)
 }
 

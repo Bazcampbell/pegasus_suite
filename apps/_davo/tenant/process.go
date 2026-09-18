@@ -4,8 +4,8 @@ package tenant
 
 import (
 	"context"
-	"racing_wagering/apps/davo/core"
-	"racing_wagering/apps/davo/store"
+	"pegasus_suite/apps/davo/core"
+	"pegasus_suite/apps/davo/store"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -13,7 +13,7 @@ import (
 	"sync"
 
 	betengine "github.com/Bazcampbell/bazbet-sdk/engine"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 // runtime container for one user's bot instance. Lifecycle:

@@ -3,8 +3,8 @@
 package core
 
 import (
-	"racing_wagering/betting/betfair"
-	"racing_wagering/engine"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/engine"
 )
 
 // The engine owns what a bet is; these aliases keep the strategies and the

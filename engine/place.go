@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"racing_wagering/betting/betfair"
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/logger"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/logger"
 )
 
 const maxBetfairCustomerRef = 32

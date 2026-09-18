@@ -13,33 +13,32 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"racing_wagering/apps/pegasus/core"
-	"racing_wagering/apps/pegasus/dispatch"
-	"racing_wagering/apps/pegasus/process"
-	"racing_wagering/apps/pegasus/settings"
-	"racing_wagering/apps/pegasus/strategy"
-	"racing_wagering/apps/pegasus/tpd"
-	"racing_wagering/apps/pegasus/triples"
-	"racing_wagering/betting/betfair"
-	"racing_wagering/clients"
-	"racing_wagering/kernel"
-	"racing_wagering/logger"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/dispatch"
+	"pegasus_suite/apps/pegasus/process"
+	"pegasus_suite/apps/pegasus/settings"
+	"pegasus_suite/apps/pegasus/strategy"
+	"pegasus_suite/apps/pegasus/tpd"
+	"pegasus_suite/apps/pegasus/triples"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/clients"
+	"pegasus_suite/kernel"
+	"pegasus_suite/logger"
 )
 
 const Name = "pegasus"
 
-// Feed identifiers. The key is the setting the Program tab toggles, so
-// FeedStatus joins to the toggle the UI already renders.
+// Feed identifiers. The key is the feed's settings document name, so the
+// Program tab joins FeedStatus to the toggle that edits that document.
 const (
 	feedTripleS = "triple-s"
 	feedTPD     = "tpd"
 
-	keyTripleS = "triples"
-	keyTPD     = "tpd"
+	keyTripleS = settings.TripleSDoc
+	keyTPD     = settings.TPDDoc
 )
 
-// FeedStatus is keyed by the same setting the Program tab toggles, so the UI
-// can join it to the toggle it already renders.
+// FeedStatus is keyed by the feed's settings document name.
 type FeedStatus struct {
 	Key     string `json:"key"`
 	Enabled bool   `json:"enabled"`
@@ -75,6 +74,17 @@ func New() *App {
 
 func (a *App) Name() string { return Name }
 
+func (a *App) ProcessSettings() kernel.Settings { return &settings.ProcessSettings{} }
+
+// AdminSettings are the feed documents Pegasus owns. The admin Betfair account
+// it also reads is shared, so the kernel owns that one.
+func (a *App) AdminSettings() map[string]func() kernel.Settings {
+	return map[string]func() kernel.Settings{
+		settings.TripleSDoc: func() kernel.Settings { return settings.DefaultTripleS() },
+		settings.TPDDoc:     func() kernel.Settings { return settings.DefaultTPD() },
+	}
+}
+
 func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -82,18 +92,25 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	a.gen++
 	gen := a.gen
 
-	doc, err := h.App(Name)
+	doc, err := h.Settings(settings.TripleSDoc)
 	if err != nil {
 		return fmt.Errorf("settings: %w", err)
 	}
-	cfg, err := settings.ParseApp(doc)
+	tripleSCfg, err := settings.ParseTripleS(doc)
+	if err != nil {
+		return err
+	}
+	if doc, err = h.Settings(settings.TPDDoc); err != nil {
+		return fmt.Errorf("settings: %w", err)
+	}
+	tpdCfg, err := settings.ParseTPD(doc)
 	if err != nil {
 		return err
 	}
 
-	logger.Info(logger.InfoLog{Message: fmt.Sprintf("pegasus starting triple_s=%v tpd=%v", cfg.Feeds.TripleS, cfg.Feeds.TPD)})
+	logger.Info(logger.InfoLog{Message: fmt.Sprintf("pegasus starting triple_s=%v tpd=%v", tripleSCfg.Enabled, tpdCfg.Enabled)})
 
-	if !cfg.Feeds.TripleS && !cfg.Feeds.TPD {
+	if !tripleSCfg.Enabled && !tpdCfg.Enabled {
 		logger.Warn(logger.ErrorLog{Message: "pegasus starting with every live feed disabled; no race data will arrive and nothing will bet"})
 	}
 
@@ -107,16 +124,16 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	a.ctx = ctx
 	a.betfair = bf
 	a.enabled = map[core.Provider]bool{
-		core.ProviderTripleS: cfg.Feeds.TripleS,
-		core.ProviderTPD:     cfg.Feeds.TPD,
+		core.ProviderTripleS: tripleSCfg.Enabled,
+		core.ProviderTPD:     tpdCfg.Enabled,
 	}
 
 	// Neither feed is fatal: one being unreachable is not a reason to deny the
 	// other. The app comes up without it, Status says which one is down and
 	// why, and a restart brings it back once the source is up.
-	tripleS := FeedStatus{Key: keyTripleS, Enabled: cfg.Feeds.TripleS}
-	if cfg.Feeds.TripleS {
-		client, err := a.setupTriples(ctx, cfg.TripleS, gen)
+	tripleS := FeedStatus{Key: keyTripleS, Enabled: tripleSCfg.Enabled}
+	if tripleSCfg.Enabled {
+		client, err := a.setupTriples(ctx, *tripleSCfg, gen)
 		if err != nil {
 			tripleS.Error = err.Error()
 			logger.Error(logger.ErrorLog{Message: fmt.Sprintf("triple-s did not start; nothing will bet off it until a restart error=%v", err)})
@@ -125,9 +142,9 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	}
 	tripleS.Running = a.triples != nil
 
-	tpdStatus := FeedStatus{Key: keyTPD, Enabled: cfg.Feeds.TPD}
-	if cfg.Feeds.TPD {
-		client, err := a.setupTPD(ctx, cfg.TPD, gen)
+	tpdStatus := FeedStatus{Key: keyTPD, Enabled: tpdCfg.Enabled}
+	if tpdCfg.Enabled {
+		client, err := a.setupTPD(ctx, *tpdCfg, gen)
 		if err != nil {
 			tpdStatus.Error = err.Error()
 			logger.Error(logger.ErrorLog{Message: fmt.Sprintf("tpd did not start; nothing will bet off it until a restart error=%v", err)})
@@ -170,7 +187,7 @@ func (a *App) Status() any {
 // ---- setup ----
 
 func (a *App) setupBetfair(ctx context.Context, h kernel.Host) (*betfair.Client, error) {
-	doc, err := h.App("betfair")
+	doc, err := h.Settings("betfair")
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +209,10 @@ func (a *App) setupBetfair(ctx context.Context, h kernel.Host) (*betfair.Client,
 }
 
 func (a *App) setupTriples(ctx context.Context, s settings.TripleS, gen uint64) (*triples.Client, error) {
+	if err := s.Validate(); err != nil {
+		return nil, err
+	}
+
 	cfg := triples.Config{
 		Endpoint:        s.Endpoint,
 		Region:          s.Region,

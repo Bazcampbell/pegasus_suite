@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"strings"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"

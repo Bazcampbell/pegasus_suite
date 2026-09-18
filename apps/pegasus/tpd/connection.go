@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 // kernel drops datagrams silently once recieve buffer is full

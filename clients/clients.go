@@ -42,10 +42,20 @@ type Store interface {
 	// Process returns one process's settings document, or ErrNotFound.
 	Process(key ProcessKey) (json.RawMessage, error)
 
-	// App returns the admin-level document for a settings scope: an
-	// application's own name for its feeds, or "betmatic"/"betfair" for the
-	// admin accounts. An absent document reads as "{}".
-	App(scope string) (json.RawMessage, error)
+	// AppSettings returns an admin-level settings document by name: a feed
+	// such as "triples", or a shared account such as "betfair". An absent
+	// document reads as "{}".
+	AppSettings(name string) (json.RawMessage, error)
+
+	// PutProcess and PutAppSettings replace a settings document whole. The
+	// store does not validate; the kernel has by the time these are called.
+	PutProcess(key ProcessKey, doc json.RawMessage) error
+	PutAppSettings(name string, doc json.RawMessage) error
+
+	// ProcessIDs lists the processes a user has settings documents for in
+	// one application. DeleteProcess removes one; absent is not an error.
+	ProcessIDs(application, userID string) ([]string, error)
+	DeleteProcess(key ProcessKey) error
 
 	// Processes lists every process recorded for an application with its last
 	// state, so a fresh boot can restore what was running.

@@ -168,7 +168,7 @@ func dbMessage(e Entry) string {
 // first "." after that separates package from function — method names keep
 // their receiver, e.g. "(*Engine).AddProcess".
 //
-//	"racing_wagering/apps/pegasus/engine.(*Engine).AddProcess"
+//	"pegasus_suite/apps/pegasus/engine.(*Engine).AddProcess"
 //	"main.main"
 func splitFuncName(name string) (pkg, fn string) {
 	pkgPath := ""

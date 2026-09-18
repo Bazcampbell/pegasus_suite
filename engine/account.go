@@ -9,12 +9,13 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"strings"
 
-	"racing_wagering/betting"
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/clients"
-	"racing_wagering/logger"
+	"pegasus_suite/betting"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/clients"
+	"pegasus_suite/logger"
 )
 
 type BetmaticCredentials struct {
@@ -29,6 +30,20 @@ type BetfairCredentials struct {
 	Password string `json:"password"`
 	AppKey   string `json:"app_key"`
 	Cert     string `json:"cert"`
+}
+
+func (c BetmaticCredentials) Validate() error {
+	if c.Username == "" || c.Password == "" {
+		return errors.New("betmatic username and password required")
+	}
+	return nil
+}
+
+func (c BetfairCredentials) Validate() error {
+	if c.Username == "" || c.Password == "" || c.AppKey == "" || c.Cert == "" {
+		return errors.New("betfair username, password, app key and cert required")
+	}
+	return nil
 }
 
 // Credentials names the accounts a process bets with. Nil means none.

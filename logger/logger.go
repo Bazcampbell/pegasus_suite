@@ -33,8 +33,8 @@
 // Both async sinks drop rather than block when their queue is full: logging
 // must never stall the application.
 //
-// The level is read from the environment — <APPLICATION>_LOG_LEVEL, else
-// LOG_LEVEL, else info — so it can be changed with an .env edit and a restart.
+// The level comes in on Config.Level; main reads it from LOG_LEVEL. Nothing in
+// this package reads the environment.
 
 package logger
 
@@ -43,7 +43,6 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -79,34 +78,9 @@ func init() {
 	std.Store(bootstrap())
 }
 
-// bootstrap builds a stderr-only logger with no sinks.
+// bootstrap builds a stderr-only logger at info with no sinks.
 func bootstrap() *Logger {
-	return &Logger{slog: slog.New(newTextHandler(resolveLevel("")))}
-}
-
-// resolveLevel reads the level from the environment. It is deployment config,
-// not application wiring, so it deliberately isn't part of Config.
-func resolveLevel(application string) slog.Level {
-	v := ""
-	if application != "" {
-		v = os.Getenv(strings.ToUpper(application) + "_LOG_LEVEL")
-	}
-	if v == "" {
-		v = os.Getenv("LOG_LEVEL")
-	}
-
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	case "bet":
-		return LevelBet
-	default:
-		return slog.LevelInfo
-	}
+	return &Logger{slog: slog.New(newTextHandler(slog.LevelInfo))}
 }
 
 func newTextHandler(level slog.Level) slog.Handler {
@@ -134,7 +108,7 @@ func New(cfg Config) (*Logger, error) {
 	setup := cfg.Setup.withDefaults()
 
 	l := &Logger{
-		slog:          slog.New(newTextHandler(resolveLevel(cfg.Application))),
+		slog:          slog.New(newTextHandler(cfg.Level)),
 		application:   cfg.Application,
 		defaultUserID: cfg.DefaultUserID,
 	}

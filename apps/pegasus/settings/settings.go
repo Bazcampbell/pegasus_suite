@@ -1,16 +1,19 @@
 // pegasus/settings/settings.go
 //
-// Pegasus's settings documents. The kernel hands over raw JSON; these parsers
-// decode and validate it. Nothing here touches storage.
+// Pegasus's settings documents. Each type validates itself: the kernel runs
+// Validate before a document is saved, and the parsers run it again when one
+// is loaded. Nothing here touches storage.
 
 package settings
 
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
-	"racing_wagering/clients"
-	"racing_wagering/engine"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/clients"
+	"pegasus_suite/engine"
 )
 
 // ---- process document ----
@@ -78,15 +81,18 @@ func ParseProcess(key clients.ProcessKey, doc json.RawMessage) (*ProcessSettings
 		s.Scopes = map[string]ScopeSettings{}
 	}
 
-	if err := s.validate(); err != nil {
+	if err := s.Validate(); err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
-func (s *ProcessSettings) validate() error {
-	bfValid := validateBetfair(s.BetfairCredentials)
-	bmValid := validateBetmatic(s.BetmaticCredentials)
+// Validate checks what the document alone can tell. Whether a scope's feed is
+// enabled depends on the running app, so that is checked when the process is
+// built, not here.
+func (s *ProcessSettings) Validate() error {
+	bfValid := s.BetfairCredentials.Validate()
+	bmValid := s.BetmaticCredentials.Validate()
 
 	if bfValid != nil && bmValid != nil {
 		return fmt.Errorf("betfair or betmatic setup must be valid")
@@ -98,6 +104,10 @@ func (s *ProcessSettings) validate() error {
 			continue
 		}
 		active++
+
+		if _, _, ok := core.SplitScopeKey(key); !ok {
+			return fmt.Errorf("unknown scope %q", key)
+		}
 
 		if scope.BetsBetmatic() {
 			if bmValid != nil {
@@ -129,40 +139,20 @@ func (s *ProcessSettings) validate() error {
 	return nil
 }
 
-func validateBetmatic(b engine.BetmaticCredentials) error {
-	if b.Username == "" || b.Password == "" {
-		return fmt.Errorf("betmatic username and password required")
-	}
-	return nil
-}
-
-func validateBetfair(b engine.BetfairCredentials) error {
-	if b.Username == "" || b.Password == "" || b.AppKey == "" || b.Cert == "" {
-		return fmt.Errorf("betfair username, password, app key and cert required")
-	}
-	return nil
-}
-
-// ---- application document (settings/apps/pegasus.json) ----
+// ---- feed documents (settings/apps/triples.json, settings/apps/tpd.json) ----
 //
-//	{
-//	  "feeds":   {"triples": true, "tpd": false},
-//	  "triples": {"endpoint": "", "region": "", "access_key_id": "", "secret_access_key": "", "client_id": ""},
-//	  "tpd":     {"licence_key": "", "udp_port": "4629"}
-//	}
+// One admin-level document per feed, each carrying its own on/off switch.
+//
+//	triples: {"enabled": true, "endpoint": "", "region": "", "access_key_id": "", "secret_access_key": "", "client_id": ""}
+//	tpd:     {"enabled": false, "licence_key": "", "udp_port": "4629"}
 
-type AppSettings struct {
-	Feeds   Feeds   `json:"feeds"`
-	TripleS TripleS `json:"triples"`
-	TPD     TPD     `json:"tpd"`
-}
-
-type Feeds struct {
-	TripleS bool `json:"triples"`
-	TPD     bool `json:"tpd"`
-}
+const (
+	TripleSDoc = "triples"
+	TPDDoc     = "tpd"
+)
 
 type TripleS struct {
+	Enabled         bool   `json:"enabled"`
 	Endpoint        string `json:"endpoint"`
 	Region          string `json:"region"`
 	AccessKeyID     string `json:"access_key_id"`
@@ -171,6 +161,7 @@ type TripleS struct {
 }
 
 type TPD struct {
+	Enabled    bool   `json:"enabled"`
 	LicenceKey string `json:"licence_key"`
 	UDPPort    string `json:"udp_port"`
 }
@@ -179,34 +170,64 @@ type TPD struct {
 // what we listen on when nothing is configured.
 const defaultTPDPort = "4629"
 
-// ParseApp decodes the application document over its defaults: Triple-S on,
-// TPD off, the Gmax default port. A missing document is those defaults.
-func ParseApp(doc json.RawMessage) (*AppSettings, error) {
-	a := &AppSettings{
-		Feeds: Feeds{TripleS: true},
-		TPD:   TPD{UDPPort: defaultTPDPort},
+// Triple-S defaults on because that is what the runtime did before there was a
+// choice; TPD defaults off so a deploy never starts a feed nobody configured.
+func DefaultTripleS() *TripleS { return &TripleS{Enabled: true} }
+func DefaultTPD() *TPD         { return &TPD{UDPPort: defaultTPDPort} }
+
+// Validate holds an enabled feed to everything it connects with. A disabled
+// feed may be left half filled in.
+func (t *TripleS) Validate() error {
+	if !t.Enabled {
+		return nil
 	}
-	if len(doc) == 0 {
-		return a, nil
+	if t.Endpoint == "" || t.Region == "" || t.AccessKeyID == "" || t.SecretAccessKey == "" || t.ClientID == "" {
+		return fmt.Errorf("triple-s endpoint, region, access key id, secret access key and client id required")
 	}
-	if err := json.Unmarshal(doc, a); err != nil {
-		return nil, fmt.Errorf("pegasus settings: %w", err)
-	}
-	if a.TPD.UDPPort == "" {
-		a.TPD.UDPPort = defaultTPDPort
-	}
-	return a, nil
+	return nil
 }
 
-func (t TPD) Validate() error {
-	if t.LicenceKey == "" {
+func (t *TPD) Validate() error {
+	if t.UDPPort != "" {
+		if p, err := strconv.Atoi(t.UDPPort); err != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("tpd udp port %q is not a port", t.UDPPort)
+		}
+	}
+	if t.Enabled && t.LicenceKey == "" {
 		return fmt.Errorf("tpd licence key not set")
 	}
 	return nil
 }
 
+// ParseTripleS and ParseTPD decode a feed document over its defaults; a
+// missing document is the defaults. They do not Validate: a feed with bad
+// settings fails on its own at start and is reported, rather than taking the
+// app down.
+func ParseTripleS(doc json.RawMessage) (*TripleS, error) {
+	t := DefaultTripleS()
+	if len(doc) > 0 {
+		if err := json.Unmarshal(doc, t); err != nil {
+			return nil, fmt.Errorf("triple-s settings: %w", err)
+		}
+	}
+	return t, nil
+}
+
+func ParseTPD(doc json.RawMessage) (*TPD, error) {
+	t := DefaultTPD()
+	if len(doc) > 0 {
+		if err := json.Unmarshal(doc, t); err != nil {
+			return nil, fmt.Errorf("tpd settings: %w", err)
+		}
+	}
+	if t.UDPPort == "" {
+		t.UDPPort = defaultTPDPort
+	}
+	return t, nil
+}
+
 // ParseAdminBetfair reads the admin exchange account used for race and price
-// lookup, from the "betfair" settings scope.
+// lookup, from the shared "betfair" document.
 func ParseAdminBetfair(doc json.RawMessage) (*engine.BetfairCredentials, error) {
 	var c engine.BetfairCredentials
 	if len(doc) > 0 {
@@ -214,7 +235,7 @@ func ParseAdminBetfair(doc json.RawMessage) (*engine.BetfairCredentials, error) 
 			return nil, fmt.Errorf("betfair admin: %w", err)
 		}
 	}
-	if err := validateBetfair(c); err != nil {
+	if err := c.Validate(); err != nil {
 		return nil, fmt.Errorf("betfair admin: %w", err)
 	}
 	return &c, nil

@@ -13,16 +13,15 @@ type ctxKey int
 
 const claimsKey ctxKey = 0
 
-// ClaimsFromContext returns nil when the request did not pass RequireAuth. The
-// Claims methods are nil-safe, so callers can test a role without a nil check
-// first.
+// returns nil when request did not pass RequireAuth
 func ClaimsFromContext(ctx context.Context) *Claims {
 	c, _ := ctx.Value(claimsKey).(*Claims)
 	return c
 }
 
-// RequireAuth verifies a SESSION-issued bearer token and puts the claims on the
-// request context. A nil verifier answers 503 rather than allowing the request
+// verifies SESSION issued bearer token
+// puts claims on request context
+// nil verifier answers 503 rather than allowing the request
 // through: an unconfigured JWK_URL must not read as "auth disabled".
 func RequireAuth(v *Verifier, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -3,7 +3,7 @@
 package triples
 
 import (
-	"racing_wagering/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/core"
 )
 
 type RaceState int

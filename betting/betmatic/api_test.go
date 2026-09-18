@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"racing_wagering/betting"
+	"pegasus_suite/betting"
 )
 
 func testClient(t *testing.T, handler http.HandlerFunc) *Client {

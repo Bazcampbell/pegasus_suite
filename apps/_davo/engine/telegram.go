@@ -4,15 +4,15 @@ package engine
 
 import (
 	"context"
-	"racing_wagering/apps/davo/anthropic"
-	"racing_wagering/apps/davo/tips"
-	"racing_wagering/apps/davo/core"
-	"racing_wagering/apps/davo/telegram"
+	"pegasus_suite/apps/davo/anthropic"
+	"pegasus_suite/apps/davo/tips"
+	"pegasus_suite/apps/davo/core"
+	"pegasus_suite/apps/davo/telegram"
 	"fmt"
 	"strings"
 	"time"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 const (

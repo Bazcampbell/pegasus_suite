@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	mqtt "github.com/eclipse/paho.mqtt.golang"

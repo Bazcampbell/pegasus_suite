@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"strings"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )

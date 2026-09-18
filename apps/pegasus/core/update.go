@@ -2,7 +2,7 @@
 
 package core
 
-import "racing_wagering/betting/betmatic"
+import "pegasus_suite/betting/betmatic"
 
 type Provider string
 

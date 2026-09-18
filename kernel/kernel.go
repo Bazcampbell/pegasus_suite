@@ -1,10 +1,8 @@
 // kernel/kernel.go
-//
-// The kernel hosts applications. It owns what every application used to
-// duplicate: the restartable runtime, the process registry, the client store,
-// the betting sessions, and the HTTP control plane. It knows nothing about
-// feeds, strategies, or what a process does with a message — an application
-// owns all of that and the kernel only drives its lifecycle.
+
+// kernel hosts applications
+// owns the restartable runtime, process registry, client store,
+// betting session, API exposed controls
 
 package kernel
 
@@ -17,9 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"racing_wagering/clients"
-	"racing_wagering/engine"
-	"racing_wagering/logger"
+	"pegasus_suite/clients"
+	"pegasus_suite/engine"
+	"pegasus_suite/logger"
 )
 
 var (
@@ -32,15 +30,14 @@ var (
 	ErrExists         = errors.New("process already added")
 )
 
-// Host is what the kernel hands down to an application. Everything an
-// application needs from outside itself comes through here.
+// Kernel hands this down to an application
 type Host interface {
-	// App returns the admin-level settings document for a scope: the
-	// application's own name for its feeds, or "betmatic"/"betfair" for the
-	// admin accounts. Absent reads as "{}".
-	App(scope string) (json.RawMessage, error)
+	// Settings returns an admin-level settings document by name: one the
+	// application owns (see AdminSettings), or a shared account such as
+	// "betfair". Absent reads as "{}".
+	Settings(name string) (json.RawMessage, error)
 
-	// Engine is the betting engine: sessions, staking, placement, results.
+	// betting engine
 	Engine() *engine.Engine
 }
 
@@ -52,6 +49,14 @@ type App interface {
 	Start(ctx context.Context, h Host) error
 	Stop()
 	NewProcess(key clients.ProcessKey, settings json.RawMessage, h Host) (Process, error)
+
+	// ProcessSettings returns a new value of the type a process document
+	// decodes into. AdminSettings names the admin-level documents
+	// (settings/apps/<name>.json) the application owns, each with a
+	// constructor for its type, defaults set. The kernel decodes and validates
+	// a document into one of these before it is saved.
+	ProcessSettings() Settings
+	AdminSettings() map[string]func() Settings
 }
 
 // StatusReporter is optional. Its result is surfaced in Status under the app.
@@ -87,6 +92,10 @@ type Kernel struct {
 	apps   []App
 	byName map[string]App
 
+	// adminDocs is every admin-level document name and its type: the shared
+	// ones plus each application's own. Filled by New and Register only.
+	adminDocs map[string]func() Settings
+
 	// mu serialises lifecycle and process operations.
 	mu     sync.Mutex
 	cancel context.CancelFunc
@@ -102,18 +111,31 @@ type Kernel struct {
 }
 
 func New(store clients.Store) *Kernel {
-	return &Kernel{
-		store:  store,
-		byName: make(map[string]App),
-		procs:  make(map[clients.ProcessKey]Process),
-		up:     make(map[string]bool),
+	k := &Kernel{
+		store:     store,
+		byName:    make(map[string]App),
+		adminDocs: make(map[string]func() Settings),
+		procs:     make(map[clients.ProcessKey]Process),
+		up:        make(map[string]bool),
 	}
+	for name, newType := range shared {
+		k.adminDocs[name] = newType
+	}
+	return k
 }
 
-// Register adds an application. Call before Start; order is start order.
+// Register adds an application. Call before Start; order is start order. Two
+// owners for one admin document is a wiring bug, so it panics like a
+// duplicate application does.
 func (k *Kernel) Register(app App) {
 	if _, dup := k.byName[app.Name()]; dup {
 		panic("kernel: application registered twice: " + app.Name())
+	}
+	for name, newType := range app.AdminSettings() {
+		if _, dup := k.adminDocs[name]; dup {
+			panic("kernel: settings document " + name + " claimed twice, again by " + app.Name())
+		}
+		k.adminDocs[name] = newType
 	}
 	k.apps = append(k.apps, app)
 	k.byName[app.Name()] = app
@@ -380,14 +402,7 @@ func (k *Kernel) RestartProcess(key clients.ProcessKey) error {
 	if err != nil {
 		return err
 	}
-
-	old.Stop()
-	old.Close()
-	delete(k.procs, key)
-	k.eng.Release(key)
-
-	if err := k.addLocked(key); err != nil {
-		k.setState(key, clients.StateStopped)
+	if err := k.rebuildLocked(key, old); err != nil {
 		return fmt.Errorf("process removed; settings did not load: %w", err)
 	}
 
@@ -395,6 +410,22 @@ func (k *Kernel) RestartProcess(key clients.ProcessKey) error {
 	k.setState(key, clients.StateRunning)
 
 	logger.Debug(logger.InfoLog{Message: "restarted process", UserID: key.UserID, ProcessID: key.ProcessID})
+	return nil
+}
+
+// rebuildLocked replaces a loaded process with one built from its current
+// settings, not started. The old one is gone either way: on failure the
+// process is left removed and recorded stopped.
+func (k *Kernel) rebuildLocked(key clients.ProcessKey, old Process) error {
+	old.Stop()
+	old.Close()
+	delete(k.procs, key)
+	k.eng.Release(key)
+
+	if err := k.addLocked(key); err != nil {
+		k.setState(key, clients.StateStopped)
+		return err
+	}
 	return nil
 }
 
@@ -468,5 +499,5 @@ func (k *Kernel) setState(key clients.ProcessKey, state clients.State) {
 
 type host struct{ k *Kernel }
 
-func (h *host) App(scope string) (json.RawMessage, error) { return h.k.store.App(scope) }
+func (h *host) Settings(name string) (json.RawMessage, error) { return h.k.store.AppSettings(name) }
 func (h *host) Engine() *engine.Engine                    { return h.k.eng }

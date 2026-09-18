@@ -1,6 +1,6 @@
 # Architecture
 
-One repo, one module (`racing_wagering`), one binary (`cmd/wagering`). No SDK, no
+One repo, one module (`pegasus_suite`), one binary (`cmd/wagering`). No SDK, no
 engine service, no logger service.
 
 ## Shape
@@ -41,13 +41,17 @@ type App interface {
 	Name() string
 	Start(ctx context.Context, h Host) error                      // feeds, admin clients
 	Stop()
-	NewProcess(key clients.ProcessKey, settings clients.Values, h Host) (Process, error)
+	NewProcess(key clients.ProcessKey, settings json.RawMessage, h Host) (Process, error)
+	ProcessSettings() Settings                                    // the type a process document decodes into
+	AdminSettings() map[string]func() Settings                    // admin documents it owns, name → type
 }
+
+type Settings interface { Validate() error }                    // every settings type validates itself
 
 type Process interface { Start(); Stop(); Running() bool; Close() }
 
 type Host interface {                  // what the kernel hands down
-	App(scope string) (json.RawMessage, error)        // admin-level settings document
+	Settings(name string) (json.RawMessage, error)    // admin-level settings document
 	Engine() *engine.Engine                           // the betting engine
 }
 ```
@@ -58,13 +62,23 @@ JSON documents in a bucket (`SETTINGS_URL`: `file:///path` for dev,
 `s3://bucket/prefix` for real), read through `clients.Store`:
 
 ```
-settings/apps/<scope>.json                       admin-level: pegasus, betfair, betmatic, davo
+settings/apps/<name>.json                        admin-level, one per feed or account:
+                                                 triples, tpd (Pegasus's); betfair, betmatic (shared)
 settings/processes/<app>/<user_id>/<pid>.json    one process; the app decodes it
 state/<app>/<user_id>/<pid>.json                 {"state": "running"} — written by the kernel
 ```
 
-Settings and state are different objects so ADMIN and the kernel never write
-the same document. Turn on bucket versioning and every settings change is an
+The kernel is the only writer. ADMIN saves through the settings routes (below):
+the kernel decodes the document into the type its owner names — an app's
+`ProcessSettings()` or one of its `AdminSettings()`, or `engine.BetfairCredentials`
+/ `engine.BetmaticCredentials` for the shared accounts — refusing unknown
+fields, and runs that type's `Validate()`. Each admin document has exactly one
+owner; a second claim panics at `Register`. Only then is it written. Checks that
+depend on the running app (is this scope's feed enabled?) happen when the
+process is built. A saved process that is loaded is rebuilt at once and left
+running if it was; admin-level documents apply on the next runtime restart.
+Settings and state are different objects so a save never races a state write.
+Turn on bucket versioning and every settings change is an
 audit trail with rollback. Secrets are plain inside the documents; bucket
 encryption and IAM protect them. Each app documents its shape at the top of
 its `settings` package. `cmd/migrate-settings` converts the old
@@ -72,7 +86,7 @@ its `settings` package. `cmd/migrate-settings` converts the old
 
 ## Logs
 
-`logger` keeps the last `LOG_RING_SIZE` (default 10 000) entries in memory
+`logger` keeps the last `LOG_RING_SIZE` entries in memory
 and serves them at `GET /api/logs?level=&app=&process=&user=&since=&limit=`;
 non-admins only see their own. Append is one slot write under a mutex, so the
 bet path pays nothing it would notice. Telegram gets Warn/Error/Bet as before.
@@ -141,9 +155,16 @@ DAVO's were, once:
 ```
 POST /api/{app}/add|start|stop|restart|delete?processId=   any user, own processes
 GET  /api/{app}/status?processId=
+GET  /api/{app}/processes                                    [{id, status}] the user's processes
+GET  /api/{app}/settings?processId=                          the process's settings document
+PUT  /api/{app}/settings?processId=                          validate → save → reload if loaded
+DELETE /api/{app}/settings?processId=                        unload, forget state, delete document
+                                                             (all of the above: admins may add &userId=)
 GET  /api/betting/bookmakers
 POST /api/system/start|stop|restart                          admin
 GET  /api/system/status                                      admin; includes per-app detail
+GET  /api/system/settings/{name}                             admin; triples, tpd, betfair, betmatic (defaults if unsaved)
+PUT  /api/system/settings/{name}                             admin; validate → save
 GET  /api/health
 ```
 
@@ -191,21 +212,27 @@ boot, and the logging come for free.
 ## Logging
 
 `logger` is the old LOGGER service as a package, minus the Postgres sink.
-`logger.Init` in `main.go` with (optionally) Telegram from env —
-`LOG_TG_BOT_TOKEN`, `LOG_TG_CHANNEL_ID`, and per-level
-`LOG_TG_{INFO,WARN,ERROR,BET}_CHANNEL_ID`. The package-level
-`logger.Info/Warn/Error/Bet/Debug` are the one deliberate global. Level from
-`WAGERING_LOG_LEVEL` or `LOG_LEVEL`.
+`logger.Init` in `main.go` with level, sizes and Telegram all passed in on
+`logger.Config` — Bet logs go to `LOG_TG_BET_CHANNEL_ID`, everything else to
+`LOG_TG_CHANNEL_ID`. The package-level `logger.Info/Warn/Error/Bet/Debug` are
+the one deliberate global. The package never reads the environment.
 
 ## Env
+
+Every variable is required and read with `util.MustEnv` in the entry point's
+`main.go` only; packages take their values as arguments. `.env.example` lists
+them all.
 
 ```
 SETTINGS_URL                 file:///var/lib/wagering or s3://bucket/prefix
 ADMIN_USER_ID
-WAGERING_PORT JWK_URL [JWT_ISSUER JWT_AUDIENCE]
-[LOG_LEVEL] [LOG_RING_SIZE] [LOG_TG_BOT_TOKEN LOG_TG_CHANNEL_ID ...]
-AWS_REGION + credentials via the default chain when SETTINGS_URL is s3://
+WAGERING_PORT JWK_URL JWT_ISSUER             (SESSION sets no aud)
+LOG_LEVEL LOG_RING_SIZE
+LOG_TG_BOT_TOKEN LOG_TG_CHANNEL_ID LOG_TG_BET_CHANNEL_ID LOG_TG_QUEUE_SIZE LOG_TG_DEDUPE_MS
+AWS_REGION + credentials via the SDK default chain when SETTINGS_URL is s3://
 ```
+
+`docs/postman/wagering.postman_collection.json` covers every route.
 
 ## Status
 

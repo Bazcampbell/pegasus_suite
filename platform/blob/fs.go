@@ -1,5 +1,7 @@
 // platform/blob/fs.go
 
+// filesystem process settings storage
+
 package blob
 
 import (
@@ -46,8 +48,8 @@ func (b *fsBucket) Get(_ context.Context, key string) ([]byte, error) {
 	return data, err
 }
 
-// Put writes to a sibling temp file and renames, so a reader never sees a
-// half-written document.
+// writes to a temp file, then renames
+// reader can never see an in-progress write
 func (b *fsBucket) Put(_ context.Context, key string, body []byte) error {
 	p, err := b.path(key)
 	if err != nil {

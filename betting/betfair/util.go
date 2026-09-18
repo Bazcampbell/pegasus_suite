@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"racing_wagering/betting/betfair/internal/exchange"
+	"pegasus_suite/betting/betfair/internal/exchange"
 )
 
 // betfair has no harness event type: a trot or pace meeting comes back under

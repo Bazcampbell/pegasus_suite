@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"racing_wagering/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/core"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 const (

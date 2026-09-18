@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"racing_wagering/apps/pegasus/core"
-	"racing_wagering/apps/pegasus/tpd"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/tpd"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 // Gmax drop a runner from the running order when its tracking fails, so a short

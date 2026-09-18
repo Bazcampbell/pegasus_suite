@@ -7,9 +7,9 @@
 package dispatch
 
 import (
-	"racing_wagering/apps/pegasus/core"
-	"racing_wagering/apps/pegasus/settings"
-	"racing_wagering/engine"
+	"pegasus_suite/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/settings"
+	"pegasus_suite/engine"
 )
 
 const application = "pegasus"

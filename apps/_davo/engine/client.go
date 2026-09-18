@@ -3,15 +3,15 @@
 package engine
 
 import (
-	"racing_wagering/apps/davo/anthropic"
-	"racing_wagering/apps/davo/core"
-	"racing_wagering/apps/davo/store"
-	"racing_wagering/apps/davo/telegram"
-	"racing_wagering/apps/davo/tenant"
+	"pegasus_suite/apps/davo/anthropic"
+	"pegasus_suite/apps/davo/core"
+	"pegasus_suite/apps/davo/store"
+	"pegasus_suite/apps/davo/telegram"
+	"pegasus_suite/apps/davo/tenant"
 	"sync"
 
-	"racing_wagering/betting/betmatic"
-	logger "racing_wagering/logger"
+	"pegasus_suite/betting/betmatic"
+	logger "pegasus_suite/logger"
 )
 
 // poll telegram > parse msg > fan to processes

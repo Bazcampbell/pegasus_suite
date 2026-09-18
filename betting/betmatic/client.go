@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"racing_wagering/betting"
-	"racing_wagering/logger"
+	"pegasus_suite/betting"
+	"pegasus_suite/logger"
 )
 
 var baseURL = "https://betmatic.app/api"

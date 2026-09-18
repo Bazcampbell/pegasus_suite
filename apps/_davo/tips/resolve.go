@@ -3,11 +3,11 @@
 package betting
 
 import (
-	"racing_wagering/apps/davo/util"
+	"pegasus_suite/apps/davo/util"
 	"errors"
 	"fmt"
-	"racing_wagering/betting/betmatic"
-	logger "racing_wagering/logger"
+	"pegasus_suite/betting/betmatic"
+	logger "pegasus_suite/logger"
 	"sort"
 	"strconv"
 	"strings"

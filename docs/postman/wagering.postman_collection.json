@@ -1,0 +1,482 @@
+{
+  "info": {
+    "name": "Wagering",
+    "description": "Control plane for the wagering service (kernel/api/server.go).\n\nLocal testing:\n1. Run SESSION and the wagering binary with .env from .env.example (JWK_URL pointing at SESSION, JWT_ISSUER = SESSION's issuer).\n2. Set sessionUrl, username/password (any user with the app's role) and adminUsername/adminPassword (a user with the admin role).\n3. Send the two requests in \"Auth (SESSION)\". They save token and adminToken for every other request. SESSION access tokens last 15 minutes; send them again when you get a 401.\n\nVariables:\n- baseUrl: http://localhost:<WAGERING_PORT>\n- app: application name registered in the kernel (pegasus)\n- processId: the process to act on (max 128 chars); its settings document must exist at settings/processes/<app>/<user_id>/<processId>.json for add to succeed",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "sessionUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "username",
+      "value": ""
+    },
+    {
+      "key": "password",
+      "value": ""
+    },
+    {
+      "key": "adminUsername",
+      "value": ""
+    },
+    {
+      "key": "adminPassword",
+      "value": ""
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "app",
+      "value": "pegasus"
+    },
+    {
+      "key": "processId",
+      "value": "local-test-1"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth (SESSION)",
+      "description": "Logs in against SESSION and stores the access token in a collection variable.",
+      "item": [
+        {
+          "name": "Login (user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('token', body.access_token);",
+                  "console.log('roles', body.user && body.user.roles);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{username}}\", \"password\": \"{{password}}\"}"
+            },
+            "url": {
+              "raw": "{{sessionUrl}}/api/auth/login",
+              "host": [
+                "{{sessionUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login (admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('logged in', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('adminToken', body.access_token);",
+                  "console.log('roles', body.user && body.user.roles);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\": \"{{adminUsername}}\", \"password\": \"{{adminPassword}}\"}"
+            },
+            "url": {
+              "raw": "{{sessionUrl}}/api/auth/login",
+              "host": [
+                "{{sessionUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Processes",
+      "description": "Any authenticated user, on their own processes. The user is the token's sub claim.",
+      "item": [
+        {
+          "name": "Add process",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/add?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "add"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Start process",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/start?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "start"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stop process",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/stop?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "stop"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Restart process",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/restart?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "restart"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete process",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/delete?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "delete"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Process status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/status?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Betting",
+      "item": [
+        {
+          "name": "Bookmakers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/betting/bookmakers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "betting",
+                "bookmakers"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "Recent logs",
+          "request": {
+            "description": "Newest first. Non-admins are pinned to their own user whatever `user` says. Enable the filters you want.",
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/logs?level=ERROR&app={{app}}&process={{processId}}&user=&since=2026-09-17T00:00:00Z&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "ERROR",
+                  "description": "DEBUG | INFO | BET | WARN | ERROR",
+                  "disabled": true
+                },
+                {
+                  "key": "app",
+                  "value": "{{app}}",
+                  "disabled": true
+                },
+                {
+                  "key": "process",
+                  "value": "{{processId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "user",
+                  "value": "",
+                  "description": "admin only",
+                  "disabled": true
+                },
+                {
+                  "key": "since",
+                  "value": "2026-09-17T00:00:00Z",
+                  "description": "RFC3339",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "200",
+                  "description": "1-2000, default 200",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "System (admin)",
+      "description": "The whole runtime. Requires the admin role.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [
+          {
+            "key": "token",
+            "value": "{{adminToken}}",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "System status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/system/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "status"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Start runtime",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/system/start",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "start"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stop runtime",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/system/stop",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "stop"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Restart runtime",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/api/system/restart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "restart"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

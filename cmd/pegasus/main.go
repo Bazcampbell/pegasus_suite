@@ -11,34 +11,82 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
-	"racing_wagering/apps/pegasus"
-	"racing_wagering/clients/doc"
-	"racing_wagering/kernel"
-	"racing_wagering/kernel/api"
-	"racing_wagering/logger"
-	"racing_wagering/platform/blob"
-	"racing_wagering/platform/util"
+	"pegasus_suite/apps/pegasus"
+	"pegasus_suite/clients/doc"
+	"pegasus_suite/kernel"
+	"pegasus_suite/kernel/api"
+	"pegasus_suite/logger"
+	"pegasus_suite/platform/auth"
+	"pegasus_suite/platform/blob"
+	"pegasus_suite/platform/util"
 
 	"github.com/joho/godotenv"
 )
 
 const application = "wagering"
 
+// env is every variable the binary reads. All are required; nothing below
+// main touches the environment.
+type env struct {
+	adminUserID string
+	settingsURL string
+
+	port string
+	auth auth.Config
+
+	logLevel    slog.Level
+	logSetup    logger.LoggerSetup
+	logTelegram *logger.TelegramSetup
+}
+
+func loadEnv() env {
+	level, err := logger.ParseLevel(util.MustEnv("LOG_LEVEL"))
+	if err != nil {
+		slog.Error("bad LOG_LEVEL", "error", err)
+		os.Exit(1)
+	}
+
+	betChannelID := util.MustEnvInt64("LOG_TG_BET_CHANNEL_ID")
+	logChannelID := util.MustEnvInt64("LOG_TG_CHANNEL_ID")
+
+	return env{
+		adminUserID: util.MustEnv("ADMIN_USER_ID"),
+		settingsURL: util.MustEnv("SETTINGS_URL"),
+
+		port: util.MustEnv("WAGERING_PORT"),
+		// SESSION sets no aud claim, so there is no audience to check.
+		auth: auth.Config{
+			URL:    util.MustEnv("JWK_URL"),
+			Issuer: util.MustEnv("JWT_ISSUER"),
+		},
+
+		logLevel: level,
+		logSetup: logger.LoggerSetup{
+			RingSize:          int(util.MustEnvInt64("LOG_RING_SIZE")),
+			TelegramQueueSize: int(util.MustEnvInt64("LOG_TG_QUEUE_SIZE")),
+			DedupeWindow:      time.Duration(util.MustEnvInt64("LOG_TG_DEDUPE_MS")) * time.Millisecond,
+		},
+		logTelegram: &logger.TelegramSetup{
+			BotToken:     util.MustEnv("LOG_TG_BOT_TOKEN"),
+			BetChannelID: &betChannelID,
+			LogChannelID: &logChannelID,
+		},
+	}
+}
+
 func main() {
 	_ = godotenv.Load()
-
-	adminUserID := util.MustEnv("ADMIN_USER_ID")
+	cfg := loadEnv()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	// Settings live as JSON documents in a bucket: a directory for dev
 	// (file:///path), S3 for real (s3://bucket/prefix).
-	bucket, err := blob.Open(ctx, util.MustEnv("SETTINGS_URL"))
+	bucket, err := blob.Open(ctx, cfg.settingsURL)
 	if err != nil {
 		slog.Error("unable to open the settings bucket", "error", err)
 		os.Exit(1)
@@ -46,8 +94,10 @@ func main() {
 
 	if err := logger.Init(logger.Config{
 		Application:   application,
-		DefaultUserID: adminUserID,
-		Telegram:      telegramFromEnv(),
+		DefaultUserID: cfg.adminUserID,
+		Level:         cfg.logLevel,
+		Telegram:      cfg.logTelegram,
+		Setup:         cfg.logSetup,
 	}); err != nil {
 		slog.Warn("telegram logging unavailable", "error", err)
 	}
@@ -64,7 +114,7 @@ func main() {
 	}
 	defer k.Stop()
 
-	server, err := api.NewServer(util.MustEnv("WAGERING_PORT"), util.MustEnv("JWK_URL"), k)
+	server, err := api.NewServer(cfg.port, cfg.auth, k)
 	if err != nil {
 		slog.Error("unable to build api server", "error", err)
 		os.Exit(1)
@@ -88,35 +138,4 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "error", err)
 	}
-}
-
-// telegramFromEnv is nil, and Telegram logging off, unless a bot token and at
-// least one channel are set.
-func telegramFromEnv() *logger.TelegramSetup {
-	token := os.Getenv("LOG_TG_BOT_TOKEN")
-	if token == "" {
-		return nil
-	}
-
-	return &logger.TelegramSetup{
-		BotToken:          token,
-		DefaultChannelID:  envChannel("LOG_TG_CHANNEL_ID"),
-		InfoLogChannelID:  envChannel("LOG_TG_INFO_CHANNEL_ID"),
-		WarnLogChannelID:  envChannel("LOG_TG_WARN_CHANNEL_ID"),
-		ErrorLogChannelID: envChannel("LOG_TG_ERROR_CHANNEL_ID"),
-		BetLogChannelID:   envChannel("LOG_TG_BET_CHANNEL_ID"),
-	}
-}
-
-func envChannel(key string) *int64 {
-	v := os.Getenv(key)
-	if v == "" {
-		return nil
-	}
-	id, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		slog.Warn("ignoring unparseable telegram channel id", "key", key, "value", v)
-		return nil
-	}
-	return &id
 }

@@ -2,11 +2,18 @@
 
 package logger
 
-import "time"
+import (
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+)
 
 type Config struct {
 	Application   string
 	DefaultUserID string // sent when no user ID is provided
+
+	Level slog.Level
 
 	Telegram *TelegramSetup // optional
 
@@ -16,69 +23,67 @@ type Config struct {
 type TelegramSetup struct {
 	BotToken string
 
-	InfoLogChannelID  *int64
-	WarnLogChannelID  *int64
-	ErrorLogChannelID *int64
-	BetLogChannelID   *int64
-
-	DefaultChannelID *int64 // if above channels not set, default here
+	BetChannelID *int64
+	LogChannelID *int64
 }
 
 func (t *TelegramSetup) channelFor(logType string) *int64 {
-	var id *int64
-	switch logType {
-	case "INFO":
-		id = t.InfoLogChannelID
-	case "WARN":
-		id = t.WarnLogChannelID
-	case "ERROR":
-		id = t.ErrorLogChannelID
-	case "BET":
-		id = t.BetLogChannelID
-	default:
-		return nil
+	if logType == "BET" {
+		return t.BetChannelID
+	} else {
+		return t.LogChannelID
 	}
-	if id == nil {
-		id = t.DefaultChannelID
-	}
-	return id
 }
 
 func (t *TelegramSetup) enabled() bool {
 	return t != nil && t.BotToken != "" &&
-		(t.InfoLogChannelID != nil || t.WarnLogChannelID != nil ||
-			t.ErrorLogChannelID != nil || t.BetLogChannelID != nil ||
-			t.DefaultChannelID != nil)
+		(t.LogChannelID != nil || t.BetChannelID != nil)
 }
 
 type LoggerSetup struct {
-	// RingSize is how many recent entries the live view keeps in memory.
+	// how many recent entries the live view keeps in memory
 	RingSize int
 
-	// TelegramQueueSize bounds the Telegram sink's channel. Full queue drops
-	// the record rather than block the application.
+	// bounds the Telegram sink channel
+	// full queue drops the record
 	TelegramQueueSize int
-	// DedupeWindow collapses identical repeated messages sent to Telegram
-	// within this window into a single "+N more" summary. Zero disables.
+
+	// collapses identical repeated messages sent to Telegram
+	// within this window into a single "+N more" summary.
+	// zero disables
 	DedupeWindow time.Duration
 }
 
 const (
-	defaultRingSize     = 10000
-	defaultQueueSize    = 1000
-	defaultDedupeWindow = 60 * time.Second
+	defaultRingSize  = 10000
+	defaultQueueSize = 1000
 )
 
+// withDefaults guards against a zero-sized ring or queue, which would panic
+// or drop everything. DedupeWindow is left alone: zero means disabled.
 func (s LoggerSetup) withDefaults() LoggerSetup {
 	if s.RingSize <= 0 {
-		s.RingSize = envInt("LOG_RING_SIZE", defaultRingSize)
+		s.RingSize = defaultRingSize
 	}
 	if s.TelegramQueueSize <= 0 {
-		s.TelegramQueueSize = envInt("LOG_TG_QUEUE_SIZE", defaultQueueSize)
-	}
-	if s.DedupeWindow == 0 {
-		ms := envInt("LOG_TG_DEDUPE_MS", int(defaultDedupeWindow/time.Millisecond))
-		s.DedupeWindow = time.Duration(ms) * time.Millisecond
+		s.TelegramQueueSize = defaultQueueSize
 	}
 	return s
+}
+
+// ParseLevel maps debug, info, bet, warn/warning or error to a level.
+func ParseLevel(v string) (slog.Level, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "bet":
+		return LevelBet, nil
+	case "warn", "warning":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	}
+	return 0, fmt.Errorf("logger: unknown level %q", v)
 }

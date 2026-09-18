@@ -5,7 +5,7 @@ package core
 import (
 	"strings"
 
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting/betmatic"
 )
 
 var ScopeCountries = []string{"AU", "US", "CA"}

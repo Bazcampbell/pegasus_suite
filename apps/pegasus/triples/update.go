@@ -5,7 +5,7 @@ package triples
 import (
 	"fmt"
 
-	"racing_wagering/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/core"
 )
 
 // Triple-S covers Australia only. The scope grid keys on country, so this is

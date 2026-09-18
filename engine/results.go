@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/logger"
-	"racing_wagering/platform/util"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/logger"
+	"pegasus_suite/platform/util"
 )
 
 const (

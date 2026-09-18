@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"racing_wagering/clients"
-	"racing_wagering/clients/doc"
-	"racing_wagering/platform/blob"
+	"pegasus_suite/clients"
+	"pegasus_suite/clients/doc"
+	"pegasus_suite/platform/blob"
 )
 
 // The document store over a directory is what dev runs on and what S3 sees;
@@ -24,7 +24,7 @@ func TestDocStoreRoundTrip(t *testing.T) {
 	if _, err := s.Process(key); !errors.Is(err, clients.ErrNotFound) {
 		t.Fatalf("missing process: err = %v, want ErrNotFound", err)
 	}
-	if got, err := s.App("pegasus"); err != nil || string(got) != "{}" {
+	if got, err := s.AppSettings("pegasus"); err != nil || string(got) != "{}" {
 		t.Fatalf("missing app doc = %s, %v; want {} and nil", got, err)
 	}
 

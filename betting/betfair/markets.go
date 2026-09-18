@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"time"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 
-	"racing_wagering/betting/betfair/internal/exchange"
+	"pegasus_suite/betting/betfair/internal/exchange"
 )
 
 func listEventsFilter(countryCodes []string) exchange.MarketFilter {

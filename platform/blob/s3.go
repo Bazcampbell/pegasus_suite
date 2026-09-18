@@ -1,8 +1,6 @@
 // platform/blob/s3.go
-//
-// Credentials and region come from the default chain: env, shared config, or
-// the instance role. Bucket encryption and IAM are what protect secrets here;
-// nothing is field-encrypted.
+
+// bucket encryption and IAM handling encryption now
 
 package blob
 

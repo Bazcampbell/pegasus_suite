@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"racing_wagering/betting/betfair/internal/exchange"
+	"pegasus_suite/betting/betfair/internal/exchange"
 
-	"racing_wagering/betting"
+	"pegasus_suite/betting"
 )
 
 func (r BetRequest) Provider() betting.Provider { return betting.ProviderBetfair }

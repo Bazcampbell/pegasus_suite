@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )

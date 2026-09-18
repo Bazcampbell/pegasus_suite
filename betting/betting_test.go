@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
-	"racing_wagering/betting"
-	"racing_wagering/betting/betfair"
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/betting/betmatic"
 )
 
 // The interface exists so ENGINE can pool both providers behind one type. The

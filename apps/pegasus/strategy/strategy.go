@@ -5,9 +5,9 @@ package strategy
 import (
 	"fmt"
 
-	"racing_wagering/apps/pegasus/core"
+	"pegasus_suite/apps/pegasus/core"
 
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting/betmatic"
 )
 
 type Strategy interface {

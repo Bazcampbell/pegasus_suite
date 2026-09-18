@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"racing_wagering/clients"
+	"pegasus_suite/clients"
 )
 
 type Store struct {
@@ -26,16 +26,18 @@ func New() *Store {
 	}
 }
 
-func (s *Store) PutProcess(key clients.ProcessKey, doc json.RawMessage) {
+func (s *Store) PutProcess(key clients.ProcessKey, doc json.RawMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.processes[key] = doc
+	return nil
 }
 
-func (s *Store) PutApp(scope string, doc json.RawMessage) {
+func (s *Store) PutAppSettings(name string, doc json.RawMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.apps[scope] = doc
+	s.apps[name] = doc
+	return nil
 }
 
 func (s *Store) Process(key clients.ProcessKey) (json.RawMessage, error) {
@@ -48,10 +50,10 @@ func (s *Store) Process(key clients.ProcessKey) (json.RawMessage, error) {
 	return doc, nil
 }
 
-func (s *Store) App(scope string) (json.RawMessage, error) {
+func (s *Store) AppSettings(name string) (json.RawMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if doc, ok := s.apps[scope]; ok {
+	if doc, ok := s.apps[name]; ok {
 		return doc, nil
 	}
 	return json.RawMessage("{}"), nil
@@ -81,6 +83,26 @@ func (s *Store) Forget(key clients.ProcessKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.states, key)
+	return nil
+}
+
+func (s *Store) ProcessIDs(application, userID string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var ids []string
+	for key := range s.processes {
+		if key.App == application && key.UserID == userID {
+			ids = append(ids, key.ProcessID)
+		}
+	}
+	return ids, nil
+}
+
+func (s *Store) DeleteProcess(key clients.ProcessKey) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.processes, key)
 	return nil
 }
 

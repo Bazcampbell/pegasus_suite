@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Bazcampbell/goreq"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 const (

@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"racing_wagering/betting/betfair/internal/exchange"
+	"pegasus_suite/betting/betfair/internal/exchange"
 
-	"racing_wagering/betting"
-	"racing_wagering/logger"
+	"pegasus_suite/betting"
+	"pegasus_suite/logger"
 )
 
 const (

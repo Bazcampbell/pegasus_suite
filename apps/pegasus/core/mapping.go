@@ -3,8 +3,8 @@
 package core
 
 import (
-	"racing_wagering/betting/betfair"
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/betting/betmatic"
 )
 
 var TriplesRacingCodes = map[string]betmatic.RacingCode{

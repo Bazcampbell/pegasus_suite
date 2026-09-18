@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"math"
 
-	"racing_wagering/apps/pegasus/core"
-	triples "racing_wagering/apps/pegasus/triples"
-	"racing_wagering/apps/pegasus/util"
+	"pegasus_suite/apps/pegasus/core"
+	triples "pegasus_suite/apps/pegasus/triples"
+	"pegasus_suite/apps/pegasus/util"
 
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 type forwardProgress struct {

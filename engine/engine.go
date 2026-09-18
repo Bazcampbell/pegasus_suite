@@ -13,9 +13,9 @@ import (
 	"context"
 	"sync"
 
-	"racing_wagering/betting/betfair"
-	"racing_wagering/betting/betmatic"
-	"racing_wagering/clients"
+	"pegasus_suite/betting/betfair"
+	"pegasus_suite/betting/betmatic"
+	"pegasus_suite/clients"
 )
 
 type Side int

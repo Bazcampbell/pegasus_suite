@@ -7,7 +7,7 @@ import (
 	"time"
 	"unicode"
 
-	"racing_wagering/betting/betfair/internal/exchange"
+	"pegasus_suite/betting/betfair/internal/exchange"
 )
 
 type RacingCode string

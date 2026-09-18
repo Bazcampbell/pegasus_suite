@@ -4,7 +4,7 @@ package betting
 
 import (
 	"fmt"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 	"regexp"
 	"strconv"
 	"strings"

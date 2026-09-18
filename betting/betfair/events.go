@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"racing_wagering/logger"
+	"pegasus_suite/logger"
 )
 
 var (

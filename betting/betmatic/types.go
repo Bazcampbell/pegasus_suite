@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"racing_wagering/betting"
-	"racing_wagering/platform/util"
+	"pegasus_suite/betting"
+	"pegasus_suite/platform/util"
 )
 
 type AuthRequest struct {

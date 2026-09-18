@@ -2,7 +2,7 @@
 
 package tpd
 
-import "racing_wagering/betting/betmatic"
+import "pegasus_suite/betting/betmatic"
 
 var CourseCodes = map[string]betmatic.RacingCode{
 	"01": betmatic.THOROUGHBRED, // Ascot

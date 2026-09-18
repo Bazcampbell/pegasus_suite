@@ -25,15 +25,14 @@ type Config struct {
 
 	HTTPClient *http.Client
 
-	// MinRefreshInterval rate-limits JWKS fetches triggered by an unknown kid,
-	// so a token signed with a bogus kid cannot be used to hammer SESSION.
-	// Defaults to 30s.
+	// rate limits JWKS fetches triggered by unknown KID
+	// token signed with fake KID cannot rape SESSION service
 	MinRefreshInterval time.Duration
 }
 
-// Verifier fetches and caches the RSA public keys SESSION publishes. Tokens are
-// verified offline once the keys are cached; a miss triggers a rate-limited
-// refresh, so a key rotation is picked up without a redeploy.
+// fetches and caches RSA public keys published by SESSION
+// tokens verified offline once keys are cached
+// mis triggers a refresh, rotating keys
 type Verifier struct {
 	url      string
 	httpc    *http.Client
@@ -119,7 +118,7 @@ func (v *Verifier) keyFor(kid string) (*rsa.PublicKey, error) {
 	return nil, fmt.Errorf("jwks: unknown kid %q", kid)
 }
 
-// refresh replaces the whole key set. lastFetch only advances on success, so a
+// replaces the whole key set. lastFetch only advances on success, so a
 // flapping JWKS endpoint retries on every Parse with an unknown kid, capped by
 // the HTTP client's timeout. The minWait gate only applies once some keys are
 // cached, which keeps a cold start from being rate-limited into failure.

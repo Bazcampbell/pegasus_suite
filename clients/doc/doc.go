@@ -2,12 +2,13 @@
 //
 // The client store as JSON documents in a blob bucket. Layout:
 //
-//	settings/apps/<scope>.json                        admin-level, written by ADMIN
-//	settings/processes/<app>/<user_id>/<pid>.json     one process, written by ADMIN
-//	state/<app>/<user_id>/<pid>.json                  {"state": "running"}, written by the kernel
+//	settings/apps/<name>.json                         admin-level, saved from ADMIN
+//	settings/processes/<app>/<user_id>/<pid>.json     one process, saved from ADMIN
+//	state/<app>/<user_id>/<pid>.json                  {"state": "running"}, set by process ops
 //
-// Settings and state are separate objects on purpose: ADMIN and the kernel
-// never write the same document, so neither can clobber the other.
+// The kernel is the only writer. Settings are saved through the settings
+// routes, validated first; state is written as processes start and stop.
+// They are separate objects so a settings save never races a state write.
 
 package doc
 
@@ -19,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"racing_wagering/clients"
-	"racing_wagering/platform/blob"
+	"pegasus_suite/clients"
+	"pegasus_suite/platform/blob"
 )
 
 const opTimeout = 10 * time.Second
@@ -31,7 +32,7 @@ type Store struct {
 
 func New(bucket blob.Bucket) *Store { return &Store{bucket: bucket} }
 
-func AppKey(scope string) string { return "settings/apps/" + scope + ".json" }
+func AppSettingsKey(name string) string { return "settings/apps/" + name + ".json" }
 
 func ProcessKey(k clients.ProcessKey) string {
 	return fmt.Sprintf("settings/processes/%s/%s/%s.json", k.App, k.UserID, k.ProcessID)
@@ -52,15 +53,58 @@ func (s *Store) Process(key clients.ProcessKey) (json.RawMessage, error) {
 	return data, err
 }
 
-func (s *Store) App(scope string) (json.RawMessage, error) {
+func (s *Store) AppSettings(name string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
 	defer cancel()
 
-	data, err := s.bucket.Get(ctx, AppKey(scope))
+	data, err := s.bucket.Get(ctx, AppSettingsKey(name))
 	if errors.Is(err, blob.ErrNotFound) {
 		return json.RawMessage("{}"), nil
 	}
 	return data, err
+}
+
+func (s *Store) PutProcess(key clients.ProcessKey, doc json.RawMessage) error {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	return s.bucket.Put(ctx, ProcessKey(key), doc)
+}
+
+func (s *Store) PutAppSettings(name string, doc json.RawMessage) error {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	return s.bucket.Put(ctx, AppSettingsKey(name), doc)
+}
+
+func (s *Store) ProcessIDs(application, userID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	prefix := fmt.Sprintf("settings/processes/%s/%s/", application, userID)
+	keys, err := s.bucket.List(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []string
+	for _, key := range keys {
+		// settings/processes/<app>/<user>/<pid>.json
+		pid := strings.TrimPrefix(key, prefix)
+		if !strings.HasSuffix(pid, ".json") || strings.Contains(pid, "/") {
+			continue
+		}
+		ids = append(ids, strings.TrimSuffix(pid, ".json"))
+	}
+	return ids, nil
+}
+
+func (s *Store) DeleteProcess(key clients.ProcessKey) error {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	return s.bucket.Delete(ctx, ProcessKey(key))
 }
 
 type stateDoc struct {

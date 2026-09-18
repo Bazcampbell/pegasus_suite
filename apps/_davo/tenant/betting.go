@@ -4,14 +4,14 @@ package tenant
 
 import (
 	"context"
-	"racing_wagering/apps/davo/core"
+	"pegasus_suite/apps/davo/core"
 	"fmt"
 	"log/slog"
 	"strings"
 
-	"racing_wagering/betting/betmatic"
+	"pegasus_suite/betting/betmatic"
 	betengine "github.com/Bazcampbell/bazbet-sdk/engine"
-	logger "racing_wagering/logger"
+	logger "pegasus_suite/logger"
 )
 
 // run is the per-Start goroutine. It owns the ctx passed to it (which is a
