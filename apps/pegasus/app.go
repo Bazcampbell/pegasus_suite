@@ -118,7 +118,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	// process. Without it nothing can be priced, so it is the one hard failure.
 	bf, err := a.setupBetfair(ctx, h)
 	if err != nil {
-		return fmt.Errorf("betfair admin: %w", err)
+		return err
 	}
 
 	a.ctx = ctx
@@ -198,7 +198,7 @@ func (a *App) setupBetfair(ctx context.Context, h kernel.Host) (*betfair.Client,
 
 	client, err := betfair.NewBetfairClient(creds.Username, creds.Password, creds.AppKey, creds.Cert)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("betfair admin: %w", err)
 	}
 
 	client.StartTokenRefresh(ctx)
