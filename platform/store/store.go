@@ -1,8 +1,8 @@
-// platform/blob/blob.go
+// platform/store/store.go
 
 // interface for filesystem settings and AWS s3 settings
 
-package blob
+package store
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-var ErrNotFound = errors.New("blob: not found")
+var ErrNotFound = errors.New("store: not found")
 
 type Bucket interface {
 	Get(ctx context.Context, key string) ([]byte, error)
@@ -29,7 +29,7 @@ type Bucket interface {
 func Open(ctx context.Context, raw string) (Bucket, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return nil, fmt.Errorf("blob: bad url %q: %w", raw, err)
+		return nil, fmt.Errorf("store: bad url %q: %w", raw, err)
 	}
 
 	switch u.Scheme {
@@ -38,7 +38,7 @@ func Open(ctx context.Context, raw string) (Bucket, error) {
 	case "s3":
 		return OpenS3(ctx, u.Host, strings.Trim(u.Path, "/"))
 	}
-	return nil, fmt.Errorf("blob: unsupported scheme %q (want file:// or s3://)", u.Scheme)
+	return nil, fmt.Errorf("store: unsupported scheme %q (want file:// or s3://)", u.Scheme)
 }
 
 // fsPath turns a file URL's path into an OS path. file:///C:/data parses to

@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Wagering",
-    "description": "Control plane for the wagering service (kernel/api/server.go).\n\nLocal testing:\n1. Run SESSION and the wagering binary with .env from .env.example (JWK_URL pointing at SESSION, JWT_ISSUER = SESSION's issuer).\n2. Set sessionUrl, username/password (any user with the app's role) and adminUsername/adminPassword (a user with the admin role).\n3. Send the two requests in \"Auth (SESSION)\". They save token and adminToken for every other request. SESSION access tokens last 15 minutes; send them again when you get a 401.\n\nVariables:\n- baseUrl: http://localhost:<WAGERING_PORT>\n- app: application name registered in the kernel (pegasus)\n- processId: the process to act on (max 128 chars); its settings document must exist at settings/processes/<app>/<user_id>/<processId>.json for add to succeed",
+    "name": "Wagering (Pegasus)",
+    "description": "Control plane for the wagering service, the host Pegasus runs on (kernel/api). One host; routes are generic over the application: {{app}} = pegasus.\n\nGetting started:\n1. Run SESSION and the wagering binary (JWK_URL = SESSION's JWKS, JWT_ISSUER = SESSION's issuer, SETTINGS_URL = file:///some/dir or s3://bucket/prefix).\n2. Set sessionUrl, username/password (a user with the pegasus role) and adminUsername/adminPassword (a user with the admin role).\n3. Send both requests in \"Auth (SESSION)\". They store token and adminToken; requests use token unless marked admin. SESSION access tokens are short lived: log in again on a 401.\n\nFirst run, in order:\n1. Admin settings: Save betfair (Pegasus cannot start without it), Save triples (or set enabled false), Save tpd.\n2. System (admin): Restart, then Status shows each feed and any start error.\n3. Process settings: Save settings. Process lifecycle: Add, Start.\n\nStatus codes: 400 invalid input or settings (the body says why), 401 missing/bad token, 403 not admin or another user's process, 404 unknown app/document/process, 409 runtime state conflict, or saved but not reloaded.\n\nVariables:\n- baseUrl: http://localhost:<WAGERING_PORT> (through ADMIN: http://localhost:3001/wagering-api)\n- app: pegasus\n- processId: the process to act on\n- userId: a SESSION user id, used only where the userId query param is enabled, with the admin token",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -44,6 +44,11 @@
     {
       "key": "processId",
       "value": "local-test-1"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "description": "admin only: the user to act for"
     }
   ],
   "auth": {
@@ -171,13 +176,324 @@
       }
     },
     {
-      "name": "Processes",
-      "description": "Any authenticated user, on their own processes. The user is the token's sub claim.",
+      "name": "Process settings",
+      "description": "A process is one settings document at settings/processes/<app>/<user_id>/<processId>.json. PUT is the whole document: it is decoded into the app's settings type (unknown fields refused) and Validate() runs before anything is written.\n\n- 204: saved. If the runtime has the process loaded it is rebuilt from the new document and left running if it was.\n- 400: invalid; the body is the reason, e.g. \"invalid settings: scope US/THOROUGHBRED betmatic delay must be at least 500ms\".\n- 409: saved, but the loaded process did not rebuild from it; the body says why.\n\nWorks while the runtime is stopped. Enable the userId query param (with the admin token) to act for another user.",
       "item": [
         {
-          "name": "Add process",
+          "name": "List processes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/processes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "processes"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "description": "Every process the user has a settings document for, sorted, with its runtime status: active | stopped | not-added | offline (runtime or app down)."
+          }
+        },
+        {
+          "name": "Get settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200/404', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/settings?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "settings"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204/409', () => pm.expect(pm.response.code).to.be.oneOf([204, 409]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/settings?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "settings"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"betmatic\": {\n    \"username\": \"you@example.com\",\n    \"password\": \"secret\",\n    \"bot_id\": \"\",\n    \"bookmakers\": [\n      \"3\",\n      \"7\"\n    ]\n  },\n  \"betfair\": {\n    \"username\": \"\",\n    \"password\": \"\",\n    \"app_key\": \"\",\n    \"cert\": \"\"\n  },\n  \"scopes\": {\n    \"US/THOROUGHBRED\": {\n      \"betmatic\": {\n        \"win_stake\": 10,\n        \"win_mbl\": false,\n        \"min_odds\": 1.5,\n        \"max_odds\": 12\n      },\n      \"betfair\": {\n        \"back_stake\": 0,\n        \"lay_stake\": 0,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betmatic_delay_ms\": 2000,\n      \"betfair_delay_ms\": 2000\n    },\n    \"AU/HARNESS\": {\n      \"betmatic\": {\n        \"win_stake\": 0,\n        \"win_mbl\": true,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betfair\": {\n        \"back_stake\": 0,\n        \"lay_stake\": 0,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betmatic_delay_ms\": 1500,\n      \"betfair_delay_ms\": 0\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Save settings (invalid -> 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.expect(pm.response.code).to.be.oneOf([400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/settings?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "settings"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "description": "Delay under 500ms: refused, nothing written.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"betmatic\": {\n    \"username\": \"you@example.com\",\n    \"password\": \"secret\"\n  },\n  \"scopes\": {\n    \"US/THOROUGHBRED\": {\n      \"betmatic\": {\n        \"win_stake\": 10\n      },\n      \"betmatic_delay_ms\": 100\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Save settings (unknown field -> 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.expect(pm.response.code).to.be.oneOf([400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/settings?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "settings"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "description": "Misspelt keys are refused rather than silently ignored.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"betmatic\": {\n    \"username\": \"you@example.com\",\n    \"password\": \"secret\",\n    \"bot_id\": \"\",\n    \"bookmakers\": [\n      \"3\",\n      \"7\"\n    ]\n  },\n  \"betfair\": {\n    \"username\": \"\",\n    \"password\": \"\",\n    \"app_key\": \"\",\n    \"cert\": \"\"\n  },\n  \"scopes\": {\n    \"US/THOROUGHBRED\": {\n      \"betmatic\": {\n        \"win_stake\": 10,\n        \"win_mbl\": false,\n        \"min_odds\": 1.5,\n        \"max_odds\": 12\n      },\n      \"betfair\": {\n        \"back_stake\": 0,\n        \"lay_stake\": 0,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betmatic_delay_ms\": 2000,\n      \"betfair_delay_ms\": 2000\n    },\n    \"AU/HARNESS\": {\n      \"betmatic\": {\n        \"win_stake\": 0,\n        \"win_mbl\": true,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betfair\": {\n        \"back_stake\": 0,\n        \"lay_stake\": 0,\n        \"min_odds\": 0,\n        \"max_odds\": 0\n      },\n      \"betmatic_delay_ms\": 1500,\n      \"betfair_delay_ms\": 0\n    }\n  },\n  \"scopez\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Delete process and settings",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', () => pm.expect(pm.response.code).to.be.oneOf([204]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/{{app}}/settings?processId={{processId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "{{app}}",
+                "settings"
+              ],
+              "query": [
+                {
+                  "key": "processId",
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "description": "Stops and unloads the process if loaded, forgets its state so a boot does not restore it, and deletes its settings document."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Process lifecycle",
+      "description": "Runtime operations on one process. Its settings must be saved first (add is 404 otherwise) and the runtime running (409 otherwise). Enable userId (admin token) to act for another user.",
+      "item": [
+        {
+          "name": "Add",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/add?processId={{processId}}",
               "host": [
@@ -191,16 +507,36 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
                 }
               ]
-            }
+            },
+            "description": "Builds the process from its settings, stopped."
           }
         },
         {
-          "name": "Start process",
+          "name": "Start",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/start?processId={{processId}}",
               "host": [
@@ -214,16 +550,35 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
                 }
               ]
             }
           }
         },
         {
-          "name": "Stop process",
+          "name": "Stop",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/stop?processId={{processId}}",
               "host": [
@@ -237,16 +592,35 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
                 }
               ]
             }
           }
         },
         {
-          "name": "Restart process",
+          "name": "Restart",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/restart?processId={{processId}}",
               "host": [
@@ -260,16 +634,36 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
                 }
               ]
-            }
+            },
+            "description": "Rebuilds from the current settings document and starts it."
           }
         },
         {
-          "name": "Delete process",
+          "name": "Unload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/delete?processId={{processId}}",
               "host": [
@@ -283,16 +677,36 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
                 }
               ]
-            }
+            },
+            "description": "Stops and removes the process from the runtime. Its settings document stays; DELETE /settings removes everything."
           }
         },
         {
-          "name": "Process status",
+          "name": "Status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200/404', () => pm.expect(pm.response.code).to.be.oneOf([200, 404]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
+            "header": [],
             "url": {
               "raw": "{{baseUrl}}/api/{{app}}/status?processId={{processId}}",
               "host": [
@@ -306,87 +720,499 @@
               "query": [
                 {
                   "key": "processId",
-                  "value": "{{processId}}"
+                  "value": "{{processId}}",
+                  "description": "the process: one path segment, max 128 chars, no / \\ or .."
+                },
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "disabled": true,
+                  "description": "admin only: act for this user instead of yourself"
+                }
+              ]
+            },
+            "description": "{status: active | stopped}; 404 when not added."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin settings",
+      "description": "One admin-level document per feed or shared account at settings/apps/<name>.json. Admin token only. GET returns the document decoded over its defaults, so an unsaved one reads as its defaults. PUT validates like process settings (400 with the reason, unknown fields refused). Applications read these at start: restart the runtime to apply a change.\n\nNames: triples, tpd (Pegasus's), betfair, betmatic (shared). Anything else is 404.",
+      "item": [
+        {
+          "name": "Get triples",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/triples",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "triples"
+              ]
+            },
+            "description": "Triple-S MQTT. When enabled, every field is required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
                 }
               ]
             }
           }
-        }
-      ]
-    },
-    {
-      "name": "Betting",
-      "item": [
+        },
         {
-          "name": "Bookmakers",
+          "name": "Save triples",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204/400', () => pm.expect(pm.response.code).to.be.oneOf([204, 400]));"
+                ]
+              }
+            }
+          ],
           "request": {
-            "method": "GET",
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/api/betting/bookmakers",
+              "raw": "{{baseUrl}}/api/system/settings/triples",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
-                "betting",
-                "bookmakers"
+                "system",
+                "settings",
+                "triples"
+              ]
+            },
+            "description": "Triple-S MQTT. When enabled, every field is required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"endpoint\": \"xxxx-ats.iot.ap-southeast-2.amazonaws.com\",\n  \"region\": \"ap-southeast-2\",\n  \"access_key_id\": \"AKIA...\",\n  \"secret_access_key\": \"...\",\n  \"client_id\": \"pegasus-1\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get tpd",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/tpd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "tpd"
+              ]
+            },
+            "description": "TPD over UDP. When enabled, licence_key is required; udp_port must be a port.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
               ]
             }
           }
-        }
-      ]
-    },
-    {
-      "name": "Logs",
-      "item": [
+        },
         {
-          "name": "Recent logs",
+          "name": "Save tpd",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204/400', () => pm.expect(pm.response.code).to.be.oneOf([204, 400]));"
+                ]
+              }
+            }
+          ],
           "request": {
-            "description": "Newest first. Non-admins are pinned to their own user whatever `user` says. Enable the filters you want.",
-            "method": "GET",
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": {
-              "raw": "{{baseUrl}}/api/logs?level=ERROR&app={{app}}&process={{processId}}&user=&since=2026-09-17T00:00:00Z&limit=200",
+              "raw": "{{baseUrl}}/api/system/settings/tpd",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "api",
-                "logs"
+                "system",
+                "settings",
+                "tpd"
+              ]
+            },
+            "description": "TPD over UDP. When enabled, licence_key is required; udp_port must be a port.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false,\n  \"licence_key\": \"\",\n  \"udp_port\": \"4629\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get betfair",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/betfair",
+              "host": [
+                "{{baseUrl}}"
               ],
-              "query": [
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "betfair"
+              ]
+            },
+            "description": "The admin exchange account Pegasus uses for race lookup and prices; it will not start without it. All four fields required; cert is the combined certificate + key PEM (client-2048.pem).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "level",
-                  "value": "ERROR",
-                  "description": "DEBUG | INFO | BET | WARN | ERROR",
-                  "disabled": true
-                },
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save betfair",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204/400', () => pm.expect(pm.response.code).to.be.oneOf([204, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/betfair",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "betfair"
+              ]
+            },
+            "description": "The admin exchange account Pegasus uses for race lookup and prices; it will not start without it. All four fields required; cert is the combined certificate + key PEM (client-2048.pem).",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "app",
-                  "value": "{{app}}",
-                  "disabled": true
-                },
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"\",\n  \"password\": \"\",\n  \"app_key\": \"\",\n  \"cert\": \"-----BEGIN CERTIFICATE-----\\n...\\n-----END CERTIFICATE-----\\n-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Get betmatic",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/betmatic",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "betmatic"
+              ]
+            },
+            "description": "The admin Betmatic account. Username and password required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "process",
-                  "value": "{{processId}}",
-                  "disabled": true
-                },
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save betmatic",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204/400', () => pm.expect(pm.response.code).to.be.oneOf([204, 400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/betmatic",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "betmatic"
+              ]
+            },
+            "description": "The admin Betmatic account. Username and password required.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "user",
-                  "value": "",
-                  "description": "admin only",
-                  "disabled": true
-                },
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"\",\n  \"password\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Save tpd (enabled without licence -> 400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.expect(pm.response.code).to.be.oneOf([400]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/tpd",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "tpd"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "since",
-                  "value": "2026-09-17T00:00:00Z",
-                  "description": "RFC3339",
-                  "disabled": true
-                },
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"licence_key\": \"\",\n  \"udp_port\": \"4629\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Unknown document -> 404",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.expect(pm.response.code).to.be.oneOf([404]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/system/settings/pegasus",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "system",
+                "settings",
+                "pegasus"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
                 {
-                  "key": "limit",
-                  "value": "200",
-                  "description": "1-2000, default 200",
-                  "disabled": true
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
                 }
               ]
             }
@@ -472,6 +1298,86 @@
                 "api",
                 "system",
                 "restart"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Betting",
+      "item": [
+        {
+          "name": "Bookmakers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/betting/bookmakers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "betting",
+                "bookmakers"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logs",
+      "item": [
+        {
+          "name": "Recent logs",
+          "request": {
+            "description": "Newest first. Non-admins are pinned to their own user whatever `user` says. Enable the filters you want.",
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/logs?level=ERROR&app={{app}}&process={{processId}}&user=&since=2026-09-17T00:00:00Z&limit=200",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "logs"
+              ],
+              "query": [
+                {
+                  "key": "level",
+                  "value": "ERROR",
+                  "description": "DEBUG | INFO | BET | WARN | ERROR",
+                  "disabled": true
+                },
+                {
+                  "key": "app",
+                  "value": "{{app}}",
+                  "disabled": true
+                },
+                {
+                  "key": "process",
+                  "value": "{{processId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "user",
+                  "value": "",
+                  "description": "admin only",
+                  "disabled": true
+                },
+                {
+                  "key": "since",
+                  "value": "2026-09-17T00:00:00Z",
+                  "description": "RFC3339",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "200",
+                  "description": "1-2000, default 200",
+                  "disabled": true
+                }
               ]
             }
           }

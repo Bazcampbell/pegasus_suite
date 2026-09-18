@@ -1,8 +1,6 @@
 // cmd/wagering/main.go
 //
-// The one binary. Wires the store, the logger, the kernel and every
-// application, then serves the control plane. This is the only file that
-// imports both the kernel and an application.
+// wires the store, the logger, the kernel and every application, then serves API
 
 package main
 
@@ -20,16 +18,14 @@ import (
 	"pegasus_suite/kernel/api"
 	"pegasus_suite/logger"
 	"pegasus_suite/platform/auth"
-	"pegasus_suite/platform/blob"
+	"pegasus_suite/platform/store"
 	"pegasus_suite/platform/util"
 
 	"github.com/joho/godotenv"
 )
 
-const application = "wagering"
+const application = "pegasus_suite"
 
-// env is every variable the binary reads. All are required; nothing below
-// main touches the environment.
 type env struct {
 	adminUserID string
 	settingsURL string
@@ -86,7 +82,7 @@ func main() {
 
 	// Settings live as JSON documents in a bucket: a directory for dev
 	// (file:///path), S3 for real (s3://bucket/prefix).
-	bucket, err := blob.Open(ctx, cfg.settingsURL)
+	bucket, err := store.Open(ctx, cfg.settingsURL)
 	if err != nil {
 		slog.Error("unable to open the settings bucket", "error", err)
 		os.Exit(1)
@@ -106,12 +102,10 @@ func main() {
 	k := kernel.New(doc.New(bucket))
 	k.Register(pegasus.New())
 
-	// A start failure is not fatal on purpose: the server still comes up, so
-	// bad settings can be fixed in the admin UI and the runtime started from
-	// there rather than by redeploying.
-	if err := k.Start(); err != nil {
-		slog.Error("initial runtime start failed; server is up, start it via /api/system/start", "error", err)
-	}
+	// Boot brings up the kernel and the API only. The runtime (applications,
+	// feeds, sessions, restored processes) starts when an admin asks for it at
+	// POST /api/system/start, so nothing connects or bets on a deploy by itself.
+	// Stop on shutdown is a no-op if it was never started.
 	defer k.Stop()
 
 	server, err := api.NewServer(cfg.port, cfg.auth, k)

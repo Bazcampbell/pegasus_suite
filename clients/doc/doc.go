@@ -1,14 +1,13 @@
 // clients/doc/doc.go
 //
-// The client store as JSON documents in a blob bucket. Layout:
+// The client store as JSON documents in a store bucket. Layout:
 //
-//	settings/apps/<name>.json                         admin-level, saved from ADMIN
-//	settings/processes/<app>/<user_id>/<pid>.json     one process, saved from ADMIN
+//	settings/apps/<name>.json                         admin-level, saved by an admin
+//	settings/processes/<app>/<user_id>/<pid>.json     one process, saved by its user (or an admin for them)
 //	state/<app>/<user_id>/<pid>.json                  {"state": "running"}, set by process ops
 //
-// The kernel is the only writer. Settings are saved through the settings
-// routes, validated first; state is written as processes start and stop.
-// They are separate objects so a settings save never races a state write.
+// kernel is the only writer
+// settings saved through settings routes after validation
 
 package doc
 
@@ -21,16 +20,16 @@ import (
 	"time"
 
 	"pegasus_suite/clients"
-	"pegasus_suite/platform/blob"
+	"pegasus_suite/platform/store"
 )
 
 const opTimeout = 10 * time.Second
 
 type Store struct {
-	bucket blob.Bucket
+	bucket store.Bucket
 }
 
-func New(bucket blob.Bucket) *Store { return &Store{bucket: bucket} }
+func New(bucket store.Bucket) *Store { return &Store{bucket: bucket} }
 
 func AppSettingsKey(name string) string { return "settings/apps/" + name + ".json" }
 
@@ -47,7 +46,7 @@ func (s *Store) Process(key clients.ProcessKey) (json.RawMessage, error) {
 	defer cancel()
 
 	data, err := s.bucket.Get(ctx, ProcessKey(key))
-	if errors.Is(err, blob.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) {
 		return nil, clients.ErrNotFound
 	}
 	return data, err
@@ -58,7 +57,7 @@ func (s *Store) AppSettings(name string) (json.RawMessage, error) {
 	defer cancel()
 
 	data, err := s.bucket.Get(ctx, AppSettingsKey(name))
-	if errors.Is(err, blob.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) {
 		return json.RawMessage("{}"), nil
 	}
 	return data, err

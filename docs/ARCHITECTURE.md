@@ -14,7 +14,7 @@ apps/<name>/                an application: its feeds, its logic, its settings
 betting/                    betting.Client + betfair/ + betmatic/ (tote later)
 clients/                    the client store: doc/ (JSON in a bucket), mem/ for tests
 logger/                     stderr + in-memory ring + Telegram, in-process
-platform/                   auth (JWKS), blob (file:// and s3:// buckets), util
+platform/                   auth (JWKS), store (file:// and s3:// buckets), util
 ```
 
 No database. Settings are JSON documents in a bucket; logs live in memory
@@ -68,7 +68,8 @@ settings/processes/<app>/<user_id>/<pid>.json    one process; the app decodes it
 state/<app>/<user_id>/<pid>.json                 {"state": "running"} — written by the kernel
 ```
 
-The kernel is the only writer. ADMIN saves through the settings routes (below):
+The kernel is the only writer. Users save their own process documents, admins
+save anyone's plus the admin-level ones, all through the settings routes (below):
 the kernel decodes the document into the type its owner names — an app's
 `ProcessSettings()` or one of its `AdminSettings()`, or `engine.BetfairCredentials`
 / `engine.BetmaticCredentials` for the shared accounts — refusing unknown
@@ -134,13 +135,16 @@ DAVO's were, once:
 
 - **Registry is flat**: `map[clients.ProcessKey]Process`, key `{App, UserID, ProcessID}`
   — the same identity as the `user_settings` primary key.
+- **Boot starts nothing.** `main.go` builds the kernel and serves the API; the
+  runtime starts only on `POST /api/system/start`, so a deploy never connects
+  a feed or places a bet by itself.
 - **Start** builds `Accounts` and `Results`, calls every app's `Start`, then
   restores processes from the store. One app failing to start is reported in
   `Status().Apps[name].Error` and does not stop the others. All of them failing
   fails the start.
 - **Process state is persisted** as `state/<app>/<user>/<pid>.json` in the
-  bucket. A container restart restores the set that was running. This is the
-  fix for "boots with zero processes".
+  bucket. Starting the runtime after a container restart restores the set that
+  was running.
 - **Sessions** live in the engine (`engine/account.go`), keyed by
   provider+username and refcounted by holding process. Deleting one of two
   processes on the same Betmatic email does not log the other out.

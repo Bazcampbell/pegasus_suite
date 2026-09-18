@@ -7,13 +7,13 @@ import (
 
 	"pegasus_suite/clients"
 	"pegasus_suite/clients/doc"
-	"pegasus_suite/platform/blob"
+	"pegasus_suite/platform/store"
 )
 
 // The document store over a directory is what dev runs on and what S3 sees;
 // this pins the layout and the not-found behaviour.
 func TestDocStoreRoundTrip(t *testing.T) {
-	bucket, err := blob.OpenFS(t.TempDir())
+	bucket, err := store.OpenFS(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,8 +1,8 @@
-// platform/blob/fs.go
+// platform/store/fs.go
 
 // filesystem process settings storage
 
-package blob
+package store
 
 import (
 	"context"
@@ -20,7 +20,7 @@ type fsBucket struct {
 
 func OpenFS(root string) (Bucket, error) {
 	if root == "" {
-		return nil, fmt.Errorf("blob: file url needs a path")
+		return nil, fmt.Errorf("store: file url needs a path")
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func OpenFS(root string) (Bucket, error) {
 func (b *fsBucket) path(key string) (string, error) {
 	clean := filepath.Clean("/" + key)
 	if strings.Contains(clean, "..") {
-		return "", fmt.Errorf("blob: bad key %q", key)
+		return "", fmt.Errorf("store: bad key %q", key)
 	}
 	return filepath.Join(b.root, filepath.FromSlash(clean)), nil
 }

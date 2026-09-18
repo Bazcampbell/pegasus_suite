@@ -1,6 +1,8 @@
 // kernel/settings.go
 //
-// Saving settings. ADMIN sends a whole document; the kernel decodes it into
+// Saving settings. A user saves their own process documents (an admin can save
+// anyone's), and admins save the admin-level ones. Either way the whole
+// document is sent; the kernel decodes it into
 // the type its owner names and runs that type's Validate before anything is
 // written, so the store only ever holds documents that parse.
 
@@ -159,9 +161,7 @@ func (k *Kernel) ListProcesses(app, userID string) ([]ProcessInfo, error) {
 	return out, nil
 }
 
-// DeleteProcessSettings removes a process entirely: unloaded if loaded, its
-// state forgotten so a boot does not try to restore it, and its settings
-// document deleted. Works with the runtime down.
+// removes a process + state + settings
 func (k *Kernel) DeleteProcessSettings(key clients.ProcessKey) error {
 	if _, ok := k.byName[key.App]; !ok {
 		return ErrUnknownApp
@@ -183,13 +183,10 @@ func (k *Kernel) DeleteProcessSettings(key clients.ProcessKey) error {
 		return fmt.Errorf("unable to delete process settings: %w", err)
 	}
 
-	logger.Info(logger.InfoLog{Message: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.InfoLog{Message: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
-// ---- admin-level settings ----
-
-// appSettingsType is the type settings/apps/<name>.json decodes into.
 func (k *Kernel) appSettingsType(name string) (Settings, bool) {
 	newType, ok := k.adminDocs[name]
 	if !ok {
@@ -198,9 +195,7 @@ func (k *Kernel) appSettingsType(name string) (Settings, bool) {
 	return newType(), true
 }
 
-// AppSettings returns an admin-level document as the application sees it:
-// decoded over its type's defaults, so a document never saved reads back as
-// the defaults rather than "{}".
+// returns admin-level application settings
 func (k *Kernel) AppSettings(name string) (json.RawMessage, error) {
 	into, ok := k.appSettingsType(name)
 	if !ok {
@@ -216,9 +211,8 @@ func (k *Kernel) AppSettings(name string) (json.RawMessage, error) {
 	return json.Marshal(into)
 }
 
-// SaveAppSettings validates and writes an admin-level document. Applications
-// read these at start, so the change applies on the next runtime restart;
-// restarting every user's processes is left to the admin.
+// validates and writes admin-level app settings
+// changes apply on runtime restart
 func (k *Kernel) SaveAppSettings(name string, doc json.RawMessage) error {
 	into, ok := k.appSettingsType(name)
 	if !ok {
@@ -234,6 +228,6 @@ func (k *Kernel) SaveAppSettings(name string, doc json.RawMessage) error {
 	if err := k.store.PutAppSettings(name, doc); err != nil {
 		return fmt.Errorf("unable to save %s settings: %w", name, err)
 	}
-	logger.Info(logger.InfoLog{Message: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
+	logger.Debug(logger.InfoLog{Message: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
 	return nil
 }

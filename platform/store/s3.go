@@ -1,8 +1,8 @@
-// platform/blob/s3.go
+// platform/store/s3.go
 
 // bucket encryption and IAM handling encryption now
 
-package blob
+package store
 
 import (
 	"bytes"
