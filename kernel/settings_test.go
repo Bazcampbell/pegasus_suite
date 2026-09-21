@@ -38,6 +38,7 @@ type fakeApp struct{ built []*fakeProcess }
 func (a *fakeApp) Name() string                      { return "fake" }
 func (a *fakeApp) Start(context.Context, Host) error { return nil }
 func (a *fakeApp) Stop()                             {}
+func (a *fakeApp) Status() error                     { return nil }
 func (a *fakeApp) ProcessSettings() Settings         { return &fakeSettings{} }
 func (a *fakeApp) AdminSettings() map[string]func() Settings {
 	return map[string]func() Settings{"fakefeed": func() Settings { return &fakeSettings{Stake: 1} }}
@@ -100,7 +101,7 @@ func TestSaveProcessSettingsWritesWhileRuntimeDown(t *testing.T) {
 		t.Fatalf("stored = %s, %v; want %s", got, err, doc)
 	}
 
-	back, err := k.ProcessSettings(key)
+	back, err := k.GetProcessSettings(key)
 	if err != nil || string(back) != string(doc) {
 		t.Fatalf("ProcessSettings = %s, %v; want %s", back, err, doc)
 	}

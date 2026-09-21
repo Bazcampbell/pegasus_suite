@@ -27,7 +27,7 @@ const (
 	quietFeedAfter = time.Minute
 )
 
-type Handler func(core.Update)
+type Handler func(p Progress, ref core.RaceRef)
 
 type Client struct {
 	conn *net.UDPConn
@@ -71,8 +71,9 @@ func NewClient(ctx context.Context, port, licenceKey string, h Handler, onFatal 
 	go c.watchQuiet(ctx)
 	go c.tracker.SweepExpired(ctx)
 
-	logger.Info(logger.InfoLog{
-		Message: fmt.Sprintf("tpd listening port=%s", port),
+	logger.Info(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("tpd listening port=%s", port),
 	})
 
 	return c, nil
@@ -100,8 +101,9 @@ func (c *Client) read(ctx context.Context) {
 			default:
 			}
 
-			logger.Error(logger.ErrorLog{
-				Message: fmt.Sprintf("tpd udp read failed error=%v", err),
+			logger.Error(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("tpd udp read failed error=%v", err),
 			})
 			c.fatalOnce.Do(func() {
 				if c.onFatal != nil {
@@ -114,8 +116,9 @@ func (c *Client) read(ctx context.Context) {
 		c.lastPacket.Store(time.Now().UnixNano())
 		c.received.Add(1)
 		c.firstSeen.Do(func() {
-			logger.Info(logger.InfoLog{
-				Message: fmt.Sprintf("tpd first datagram received from=%v bytes=%v", remote, n),
+			logger.Info(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("tpd first datagram received from=%v bytes=%v", remote, n),
 			})
 		})
 
@@ -126,8 +129,9 @@ func (c *Client) read(ctx context.Context) {
 func (c *Client) handleDatagram(datagram []byte) {
 	defer func() {
 		if r := recover(); r != nil {
-			logger.Error(logger.ErrorLog{
-				Message: fmt.Sprintf("tpd panic decoding a datagram; packet dropped panic=%v", r),
+			logger.Error(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("tpd panic decoding a datagram; packet dropped panic=%v", r),
 			})
 		}
 	}()
@@ -135,7 +139,7 @@ func (c *Client) handleDatagram(datagram []byte) {
 	// the tracker resolves identity; the packet rides along untouched
 	bad := decodeDatagram(datagram, func(p Progress) {
 		if ref, ok := c.tracker.Ref(p); ok {
-			c.handler(core.Update{Ref: ref, Msg: p})
+			c.handler(p, ref)
 		}
 	})
 
@@ -166,9 +170,10 @@ func (c *Client) watchQuiet(ctx context.Context) {
 				continue
 			}
 
-			logger.Error(logger.ErrorLog{
-				Message:     fmt.Sprintf("tpd feed silent with a race due quiet_for=%v race=%v scheduled_off=%v undecodable_packets=%v", quiet.Truncate(time.Second), race.Racecourse, race.PostTime.Format("2006-01-02 15:04 MST"), c.dropped.Load()),
-				RaceDetails: &logger.RaceDetails{Venue: race.Racecourse, RaceNumber: race.RaceNumber},
+			logger.Error(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("tpd feed silent with a race due quiet_for=%v race=%v scheduled_off=%v undecodable_packets=%v", quiet.Truncate(time.Second), race.Racecourse, race.PostTime.Format("2006-01-02 15:04 MST"), c.dropped.Load()),
+				RaceDetails:      &logger.RaceDetails{Venue: race.Racecourse, RaceNumber: race.RaceNumber},
 			})
 		}
 	}

@@ -38,6 +38,11 @@ type Client interface {
 	StartTokenRefresh(ctx context.Context)
 	Close()
 
+	// GetBet asks the provider what happened to a bet it accepted, by the ID it
+	// gave on placement. A bet not resulted yet is BetPending with a nil error;
+	// an error means the provider could not be asked, so try again later.
+	GetBet(id string) (Bet, error)
+
 	PlaceBet(req BetRequest) error
 }
 

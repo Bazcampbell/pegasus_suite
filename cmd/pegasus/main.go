@@ -17,6 +17,7 @@ import (
 	"pegasus_suite/kernel"
 	"pegasus_suite/kernel/api"
 	"pegasus_suite/logger"
+	"pegasus_suite/logger/telegram"
 	"pegasus_suite/platform/auth"
 	"pegasus_suite/platform/store"
 	"pegasus_suite/platform/util"
@@ -33,21 +34,20 @@ type env struct {
 	port string
 	auth auth.Config
 
-	logLevel    slog.Level
-	logSetup    logger.LoggerSetup
-	logTelegram *logger.TelegramSetup
+	log      logger.Config
+	telegram telegram.Config
+}
+
+func mustLevel(key string) slog.Level {
+	level, err := logger.ParseLevel(util.MustEnv(key))
+	if err != nil {
+		slog.Error("bad "+key, "error", err)
+		os.Exit(1)
+	}
+	return level
 }
 
 func loadEnv() env {
-	level, err := logger.ParseLevel(util.MustEnv("LOG_LEVEL"))
-	if err != nil {
-		slog.Error("bad LOG_LEVEL", "error", err)
-		os.Exit(1)
-	}
-
-	betChannelID := util.MustEnvInt64("LOG_TG_BET_CHANNEL_ID")
-	logChannelID := util.MustEnvInt64("LOG_TG_CHANNEL_ID")
-
 	return env{
 		adminUserID: util.MustEnv("ADMIN_USER_ID"),
 		settingsURL: util.MustEnv("SETTINGS_URL"),
@@ -59,20 +59,28 @@ func loadEnv() env {
 			Issuer: util.MustEnv("JWT_ISSUER"),
 		},
 
-		logLevel: level,
-		logSetup: logger.LoggerSetup{
-			RingSize:          int(util.MustEnvInt64("LOG_RING_SIZE")),
-			TelegramQueueSize: int(util.MustEnvInt64("LOG_TG_QUEUE_SIZE")),
-			DedupeWindow:      time.Duration(util.MustEnvInt64("LOG_TG_DEDUPE_MS")) * time.Millisecond,
+		log: logger.Config{
+			Application:   application,
+			DefaultUserID: util.MustEnv("ADMIN_USER_ID"),
+			StdErrLevel:   mustLevel("LOG_LEVEL"),
+			Ring: logger.RingConfig{
+				Level: mustLevel("LOG_RING_LEVEL"),
+				Size:  int(util.MustEnvInt64("LOG_RING_SIZE")),
+			},
 		},
-		logTelegram: &logger.TelegramSetup{
+		telegram: telegram.Config{
+			Level:        mustLevel("LOG_TG_LEVEL"),
 			BotToken:     util.MustEnv("LOG_TG_BOT_TOKEN"),
-			BetChannelID: &betChannelID,
-			LogChannelID: &logChannelID,
+			LogChannelID: util.MustEnvInt64("LOG_TG_CHANNEL_ID"),
+			BetChannelID: util.MustEnvInt64("LOG_TG_BET_CHANNEL_ID"),
+			QueueSize:    int(util.MustEnvInt64("LOG_TG_QUEUE_SIZE")),
+			DedupeWindow: time.Duration(util.MustEnvInt64("LOG_TG_DEDUPE_MS")) * time.Millisecond,
 		},
 	}
 }
 
+// brings up the kernel and API only
+// runtime is managed by admin page
 func main() {
 	_ = godotenv.Load()
 	cfg := loadEnv()
@@ -80,42 +88,43 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Settings live as JSON documents in a bucket: a directory for dev
-	// (file:///path), S3 for real (s3://bucket/prefix).
+	// settings as JSON files in a bucket
+	// s3 or local dir
 	bucket, err := store.Open(ctx, cfg.settingsURL)
 	if err != nil {
-		slog.Error("unable to open the settings bucket", "error", err)
+		slog.Error("unable to open settings bucket", "error", err)
 		os.Exit(1)
 	}
 
-	if err := logger.Init(logger.Config{
-		Application:   application,
-		DefaultUserID: cfg.adminUserID,
-		Level:         cfg.logLevel,
-		Telegram:      cfg.logTelegram,
-		Setup:         cfg.logSetup,
-	}); err != nil {
+	// Telegram is optional: without it the logger still runs, stderr and ring.
+	var sinks []logger.Sink
+	if tg, err := telegram.New(cfg.telegram); err != nil {
 		slog.Warn("telegram logging unavailable", "error", err)
+	} else {
+		sinks = append(sinks, tg)
 	}
+	logger.Init(cfg.log, sinks...)
 	defer logger.Stop()
 
-	k := kernel.New(doc.New(bucket))
+	store := doc.New(bucket)
+
+	k := kernel.New(store)
+
+	// register applications
 	k.Register(pegasus.New())
 
-	// Boot brings up the kernel and the API only. The runtime (applications,
-	// feeds, sessions, restored processes) starts when an admin asks for it at
-	// POST /api/system/start, so nothing connects or bets on a deploy by itself.
-	// Stop on shutdown is a no-op if it was never started.
 	defer k.Stop()
 
 	server, err := api.NewServer(cfg.port, cfg.auth, k)
 	if err != nil {
-		slog.Error("unable to build api server", "error", err)
+		slog.Error("unable to initialise api server", "error", err)
 		os.Exit(1)
 	}
 
 	serverErr := make(chan error, 1)
-	go func() { serverErr <- server.Run() }()
+	go func() {
+		serverErr <- server.Run()
+	}()
 
 	select {
 	case err := <-serverErr:

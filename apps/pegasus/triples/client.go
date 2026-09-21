@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"pegasus_suite/apps/pegasus/core"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,9 +63,10 @@ func NewClient(ctx context.Context, cfg Config, h Handler, onFatal func(error)) 
 func (c *Client) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 	var rm RaceMessage
 	if err := json.Unmarshal(msg.Payload(), &rm); err != nil {
-		logger.Error(logger.ErrorLog{
-			Message: fmt.Sprintf("triple-s decode failed topic=%v error=%v", msg.Topic(), err),
-			Request: msg.Payload(),
+		logger.Error(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("triple-s decode failed topic=%v error=%v", msg.Topic(), err),
+			Request:          msg.Payload(),
 		})
 		return
 	}
@@ -83,12 +85,14 @@ func (c *Client) handleMessage(_ mqtt.Client, msg mqtt.Message) {
 // reconnect it still points at the old, dead client.
 func (c *Client) onConnect(mc mqtt.Client) {
 	if err := c.subscribeAll(mc, c.cfg.Topics); err != nil {
-		logger.Error(logger.ErrorLog{
-			Message: fmt.Sprintf("triple-s resubscribe failed error=%v", err),
+		logger.Error(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("triple-s resubscribe failed error=%v", err),
 		})
 	}
-	logger.Info(logger.InfoLog{
-		Message: fmt.Sprintf("triple-s connected client_id=%v", c.cfg.ClientID),
+	logger.Info(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("triple-s connected client_id=%v", c.cfg.ClientID),
 	})
 }
 
@@ -96,8 +100,9 @@ func (c *Client) onConnect(mc mqtt.Client) {
 // can't use paho's auto-reconnect because the presigned WS URL is captured at
 // dial time and expires; we need to re-sign on every attempt.
 func (c *Client) onConnectionLost(_ mqtt.Client, err error) {
-	logger.Warn(logger.ErrorLog{
-		Message: fmt.Sprintf("triple-s connection lost error=%v", err),
+	logger.Warn(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("triple-s connection lost error=%v", err),
 	})
 	go c.reconnectLoop()
 }
@@ -120,14 +125,16 @@ func (c *Client) reconnectLoop() {
 		case <-time.After(backoff):
 		}
 
-		logger.Debug(logger.InfoLog{
-			Message: fmt.Sprintf("triple-s reconnect attempt attempt=%v max_attempts=%v backoff=%v client_id=%v", attempt, maxReconnectAttempts, backoff.String(), c.cfg.ClientID),
+		logger.Debug(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("triple-s reconnect attempt attempt=%v max_attempts=%v backoff=%v client_id=%v", attempt, maxReconnectAttempts, backoff.String(), c.cfg.ClientID),
 		})
 
 		mc, err := connectMQTT(c.ctx, c.cfg, c.handleMessage, c.onConnect, c.onConnectionLost)
 		if err != nil {
-			logger.Warn(logger.ErrorLog{
-				Message: fmt.Sprintf("triple-s reconnect failed attempt=%v max_attempts=%v client_id=%v error=%v", attempt, maxReconnectAttempts, c.cfg.ClientID, err),
+			logger.Warn(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("triple-s reconnect failed attempt=%v max_attempts=%v client_id=%v error=%v", attempt, maxReconnectAttempts, c.cfg.ClientID, err),
 			})
 			backoff *= 2
 			continue
@@ -150,8 +157,9 @@ func (c *Client) reconnectLoop() {
 	}
 
 	err := fmt.Errorf("triple-s reconnect gave up after %d attempts", maxReconnectAttempts)
-	logger.Error(logger.ErrorLog{
-		Message: fmt.Sprintf("triple-s reconnect exhausted; stopping runtime attempts=%v client_id=%v error=%v", maxReconnectAttempts, c.cfg.ClientID, err),
+	logger.Error(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("triple-s reconnect exhausted; stopping runtime attempts=%v client_id=%v error=%v", maxReconnectAttempts, c.cfg.ClientID, err),
 	})
 	c.fatalOnce.Do(func() {
 		if c.onFatal != nil {
@@ -175,8 +183,9 @@ func (c *Client) subscribeAll(mc mqtt.Client, topics []string) error {
 		return err
 	}
 
-	logger.Info(logger.InfoLog{
-		Message: fmt.Sprintf("triple-s subscribed topics=%v client_id=%v", strings.Join(topics, ","), c.cfg.ClientID),
+	logger.Info(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("triple-s subscribed topics=%v client_id=%v", strings.Join(topics, ","), c.cfg.ClientID),
 	})
 
 	return nil

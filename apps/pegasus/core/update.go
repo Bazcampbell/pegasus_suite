@@ -41,7 +41,7 @@ type RaceRef struct {
 
 	Scope      string // country/code
 	Venue      string
-	VenueName  string
+	VenueName  string // betmatic (if applicable)
 	Country    string
 	RaceNumber int
 	Code       betmatic.RacingCode
@@ -49,11 +49,4 @@ type RaceRef struct {
 	Distance float64
 
 	Status RaceStatus
-}
-
-// engine fans this out
-// msg is the actual payload of the stream
-type Update struct {
-	Ref RaceRef
-	Msg any
 }

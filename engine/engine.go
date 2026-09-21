@@ -2,8 +2,7 @@
 //
 // The betting engine. One per runtime, shared by every process of every
 // application. It owns the bookmaker sessions, turns a strategy's decision plus
-// a scope's money into a provider request, places it, and watches for the
-// result. It has no opinion about which runner or when — that is the
+// a scope's money into a provider request, and places it. It has no opinion about which runner or when — that is the
 // strategy's — and never reads settings: everything it needs arrives on the
 // Order, resolved by the process at build time.
 
@@ -105,26 +104,20 @@ type Order struct {
 }
 
 type Engine struct {
-	// ctx bounds every session's token refresh and the results poller;
-	// cancelled on runtime stop.
+	// ctx bounds every session's token refresh; cancelled on runtime stop.
 	ctx context.Context
 
 	mu       sync.Mutex
 	betmatic map[string]*session[*betmatic.Client]
 	betfair  map[string]*session[*betfair.Client]
-
-	results *Results
 }
 
 func New(ctx context.Context) *Engine {
-	e := &Engine{
+	return &Engine{
 		ctx:      ctx,
 		betmatic: make(map[string]*session[*betmatic.Client]),
 		betfair:  make(map[string]*session[*betfair.Client]),
-		results:  NewResults(),
 	}
-	go e.results.Run(ctx)
-	return e
 }
 
 // Account opens (or joins) the sessions a process needs and binds them with
@@ -134,7 +127,7 @@ func (e *Engine) Account(key clients.ProcessKey, c Credentials) (*Account, error
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	a := &Account{UserID: key.UserID, ProcessID: key.ProcessID}
+	a := &Account{App: key.App, UserID: key.UserID, ProcessID: key.ProcessID}
 
 	if c.Betmatic != nil {
 		client, err := claim(e.ctx, e.betmatic, key, c.Betmatic.Username, func() (*betmatic.Client, error) {
@@ -144,7 +137,6 @@ func (e *Engine) Account(key clients.ProcessKey, c Credentials) (*Account, error
 			return nil, err
 		}
 		a.betmatic = client
-		a.bmClient = client
 		a.BotID = c.Betmatic.BotID
 		a.Bookmakers = c.Betmatic.Bookmakers
 	}
@@ -173,7 +165,7 @@ func (e *Engine) Release(key clients.ProcessKey) {
 	release(e.betfair, key)
 }
 
-// Close logs every session out. The results poller stops with the context.
+// Close logs every session out.
 func (e *Engine) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()

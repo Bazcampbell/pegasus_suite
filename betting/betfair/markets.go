@@ -43,16 +43,16 @@ func (bc *Client) listRaces(eventID string) (map[int]*Race, error) {
 		return nil, err
 	}
 
-	logger.Debug(logger.InfoLog{
-		Message: fmt.Sprintf("betfair markets returned event_id=%v market_count=%v", eventID, len(markets)),
+	logger.Debug(logger.Log{
+		FormattedMessage: fmt.Sprintf("betfair markets returned event_id=%v market_count=%v", eventID, len(markets)),
 	})
 
 	races := make(map[int]*Race, len(markets))
 	for _, m := range markets {
 		number, ok := parseRaceNumber(m.MarketName)
 		if !ok {
-			logger.Debug(logger.InfoLog{
-				Message: fmt.Sprintf("betfair market name has no race number, skipping event_id=%v market_id=%v market_name=%v", eventID, m.MarketID, m.MarketName),
+			logger.Debug(logger.Log{
+				FormattedMessage: fmt.Sprintf("betfair market name has no race number, skipping event_id=%v market_id=%v market_name=%v", eventID, m.MarketID, m.MarketName),
 			})
 			continue
 		}
@@ -66,8 +66,8 @@ func (bc *Client) listRaces(eventID string) (map[int]*Race, error) {
 		}
 		races[number] = &race
 
-		logger.Debug(logger.InfoLog{
-			Message: fmt.Sprintf("betfair race parsed event_id=%v race_number=%v market_id=%v market_name=%v distance=%v runner_count=%v", eventID, number, race.ID, race.Name, race.Distance, len(race.Runners)),
+		logger.Debug(logger.Log{
+			FormattedMessage: fmt.Sprintf("betfair race parsed event_id=%v race_number=%v market_id=%v market_name=%v distance=%v runner_count=%v", eventID, number, race.ID, race.Name, race.Distance, len(race.Runners)),
 		})
 	}
 
@@ -82,8 +82,8 @@ func toRunners(m exchange.MarketCatalogue) map[int]*Runner {
 	for _, cr := range m.Runners {
 		number, err := strconv.Atoi(cr.Metadata.ClothNumber)
 		if err != nil || number == 0 {
-			logger.Debug(logger.InfoLog{
-				Message: fmt.Sprintf("betfair runner has no cloth number, skipping market_id=%v selection_id=%v runner_name=%v", m.MarketID, cr.SelectionID, cr.RunnerName),
+			logger.Debug(logger.Log{
+				FormattedMessage: fmt.Sprintf("betfair runner has no cloth number, skipping market_id=%v selection_id=%v runner_name=%v", m.MarketID, cr.SelectionID, cr.RunnerName),
 			})
 			continue
 		}

@@ -8,107 +8,14 @@ package kernel
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"pegasus_suite/clients"
 	"pegasus_suite/engine"
 	"pegasus_suite/logger"
 )
-
-var (
-	ErrNotRunning     = errors.New("runtime not running")
-	ErrAlreadyRunning = errors.New("runtime already running")
-	ErrUnknownApp     = errors.New("unknown application")
-	ErrAppDown        = errors.New("application not running")
-	ErrNotFound       = errors.New("process not found")
-	ErrNoSettings     = errors.New("no settings document for process")
-	ErrExists         = errors.New("process already added")
-)
-
-// Kernel hands this down to an application
-type Host interface {
-	// Settings returns an admin-level settings document by name: one the
-	// application owns (see AdminSettings), or a shared account such as
-	// "betfair". Absent reads as "{}".
-	Settings(name string) (json.RawMessage, error)
-
-	// betting engine
-	Engine() *engine.Engine
-}
-
-// App is an application: a source of signal plus the logic that turns it into
-// bets. Start brings up whatever it shares across processes (feeds, admin
-// clients); NewProcess builds one user's instance from their settings document.
-type App interface {
-	Name() string
-	Start(ctx context.Context, h Host) error
-	Stop()
-	NewProcess(key clients.ProcessKey, settings json.RawMessage, h Host) (Process, error)
-
-	// ProcessSettings returns a new value of the type a process document
-	// decodes into. AdminSettings names the admin-level documents
-	// (settings/apps/<name>.json) the application owns, each with a
-	// constructor for its type, defaults set. The kernel decodes and validates
-	// a document into one of these before it is saved.
-	ProcessSettings() Settings
-	AdminSettings() map[string]func() Settings
-}
-
-// StatusReporter is optional. Its result is surfaced in Status under the app.
-type StatusReporter interface {
-	Status() any
-}
-
-// Process is one running instance of an application for one user. Start and
-// Stop may be called repeatedly; Close is called once, when the process is
-// removed, and after it the kernel releases the process's betting sessions.
-type Process interface {
-	Start()
-	Stop()
-	Running() bool
-	Close()
-}
-
-type AppStatus struct {
-	Running bool   `json:"running"`
-	Error   string `json:"error,omitempty"`
-	Detail  any    `json:"detail,omitempty"`
-}
-
-type Status struct {
-	Running   bool                 `json:"running"`
-	StartedAt *time.Time           `json:"started_at,omitempty"`
-	LastError string               `json:"last_error,omitempty"`
-	Apps      map[string]AppStatus `json:"apps"`
-}
-
-type Kernel struct {
-	store  clients.Store
-	apps   []App
-	byName map[string]App
-
-	// adminDocs is every admin-level document name and its type: the shared
-	// ones plus each application's own. Filled by New and Register only.
-	adminDocs map[string]func() Settings
-
-	// mu serialises lifecycle and process operations.
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	eng    *engine.Engine
-	procs  map[clients.ProcessKey]Process
-	up     map[string]bool
-
-	// read lock-free by Status, so a poll never waits behind a slow Start
-	running   atomic.Bool
-	startedAt atomic.Int64
-	lastErr   atomic.Pointer[string]
-	appErrs   atomic.Pointer[map[string]string]
-}
 
 func New(store clients.Store) *Kernel {
 	k := &Kernel{
@@ -124,9 +31,7 @@ func New(store clients.Store) *Kernel {
 	return k
 }
 
-// Register adds an application. Call before Start; order is start order. Two
-// owners for one admin document is a wiring bug, so it panics like a
-// duplicate application does.
+// adds an application, called before start
 func (k *Kernel) Register(app App) {
 	if _, dup := k.byName[app.Name()]; dup {
 		panic("kernel: application registered twice: " + app.Name())
@@ -154,8 +59,6 @@ func (k *Kernel) HasApp(name string) bool {
 	return ok
 }
 
-// ---- lifecycle ----
-
 func (k *Kernel) Start() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -180,118 +83,6 @@ func (k *Kernel) Restart() error {
 	return k.startLocked()
 }
 
-func (k *Kernel) startLocked() error {
-	if k.running.Load() {
-		return ErrAlreadyRunning
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	k.cancel = cancel
-	k.eng = engine.New(ctx)
-
-	h := &host{k: k}
-	errs := make(map[string]string)
-
-	// One application failing is not a reason to deny the others: it is
-	// reported in Status and comes back on the next restart.
-	for _, app := range k.apps {
-		if err := app.Start(ctx, h); err != nil {
-			errs[app.Name()] = err.Error()
-			logger.Error(logger.ErrorLog{
-				Message: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
-			})
-			continue
-		}
-		k.up[app.Name()] = true
-	}
-	k.appErrs.Store(&errs)
-
-	if len(k.up) == 0 {
-		cancel()
-		k.eng.Close()
-		return k.fail(errors.New("no application started"))
-	}
-
-	k.running.Store(true)
-	k.startedAt.Store(time.Now().UnixNano())
-	k.lastErr.Store(nil)
-
-	k.restoreLocked()
-
-	logger.Info(logger.InfoLog{Message: fmt.Sprintf("runtime started apps=%v", k.Apps())})
-	return nil
-}
-
-// restoreLocked re-adds every process the store remembers and starts the ones
-// that were running. This is what makes a container restart pick up where it
-// left off.
-func (k *Kernel) restoreLocked() {
-	for _, app := range k.apps {
-		if !k.up[app.Name()] {
-			continue
-		}
-
-		refs, err := k.store.Processes(app.Name())
-		if err != nil {
-			logger.Warn(logger.ErrorLog{Message: fmt.Sprintf("%s: unable to list processes to restore error=%v", app.Name(), err)})
-			continue
-		}
-
-		for _, ref := range refs {
-			if err := k.addLocked(ref.Key); err != nil {
-				logger.Warn(logger.ErrorLog{
-					Message:   fmt.Sprintf("unable to restore process error=%v", err),
-					UserID:    ref.Key.UserID,
-					ProcessID: ref.Key.ProcessID,
-				})
-				continue
-			}
-			if ref.State == clients.StateRunning {
-				k.procs[ref.Key].Start()
-			}
-		}
-
-		logger.Debug(logger.InfoLog{Message: fmt.Sprintf("%s: restored processes count=%v", app.Name(), len(refs))})
-	}
-}
-
-func (k *Kernel) stopLocked() error {
-	if !k.running.Load() {
-		return ErrNotRunning
-	}
-
-	// Stop serving first, then tear down. Store state is left alone so the next
-	// Start restores exactly this set.
-	k.running.Store(false)
-
-	for key, p := range k.procs {
-		p.Stop()
-		p.Close()
-		delete(k.procs, key)
-	}
-
-	for _, app := range k.apps {
-		if k.up[app.Name()] {
-			app.Stop()
-			delete(k.up, app.Name())
-		}
-	}
-
-	k.eng.Close()
-	k.cancel()
-	k.cancel = nil
-
-	logger.Info(logger.InfoLog{Message: "runtime stopped"})
-	return nil
-}
-
-func (k *Kernel) fail(err error) error {
-	msg := err.Error()
-	k.lastErr.Store(&msg)
-	logger.Error(logger.ErrorLog{Message: fmt.Sprintf("runtime start failed error=%v", err)})
-	return err
-}
-
 func (k *Kernel) Status() Status {
 	st := Status{Running: k.running.Load(), Apps: make(map[string]AppStatus, len(k.apps))}
 	if st.Running {
@@ -311,158 +102,93 @@ func (k *Kernel) Status() Status {
 		as := AppStatus{Error: errs[app.Name()]}
 		as.Running = st.Running && as.Error == ""
 		if as.Running {
-			if r, ok := app.(StatusReporter); ok {
-				as.Detail = r.Status()
-			}
+			as.Detail = app.Status()
 		}
 		st.Apps[app.Name()] = as
 	}
 	return st
 }
 
-// ---- processes ----
-
-func (k *Kernel) AddProcess(key clients.ProcessKey) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	if err := k.addLocked(key); err != nil {
-		return err
-	}
-	k.setState(key, clients.StateStopped)
-	return nil
-}
-
-func (k *Kernel) addLocked(key clients.ProcessKey) error {
-	app, err := k.appFor(key)
-	if err != nil {
-		return err
-	}
-	if _, exists := k.procs[key]; exists {
-		return ErrExists
+func (k *Kernel) startLocked() error {
+	if k.running.Load() {
+		return ErrAlreadyRunning
 	}
 
-	doc, err := k.store.Process(key)
-	if err != nil {
-		if errors.Is(err, clients.ErrNotFound) {
-			return ErrNoSettings
+	ctx, cancel := context.WithCancel(context.Background())
+	k.cancel = cancel
+	k.eng = engine.New(ctx)
+
+	h := &host{k: k}
+	errs := make(map[string]string)
+
+	// one application failing doesn't block the others
+	// reported in status
+	for _, app := range k.apps {
+		if err := app.Start(ctx, h); err != nil {
+			errs[app.Name()] = err.Error()
+			logger.Error(logger.Log{
+				Application:      app.Name(),
+				FormattedMessage: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
+			})
+			continue
 		}
-		return fmt.Errorf("unable to load process settings: %w", err)
+		k.up[app.Name()] = true
+	}
+	k.appErrs.Store(&errs)
+
+	if len(k.up) == 0 {
+		cancel()
+		k.eng.Close()
+		return k.fail(errors.New("no applications started"))
 	}
 
-	p, err := app.NewProcess(key, doc, &host{k: k})
-	if err != nil {
-		// A session claimed before the failure must not stay held.
-		k.eng.Release(key)
-		return err
-	}
-	k.procs[key] = p
+	k.running.Store(true)
+	k.startedAt.Store(time.Now().UnixNano())
+	k.lastErr.Store(nil)
 
-	logger.Debug(logger.InfoLog{Message: "added process", UserID: key.UserID, ProcessID: key.ProcessID})
+	k.restoreProcessesLocked()
+
+	logger.Info(logger.Log{FormattedMessage: fmt.Sprintf("runtime started apps=%v", k.Apps())})
 	return nil
 }
 
-func (k *Kernel) StartProcess(key clients.ProcessKey) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	p, err := k.processLocked(key)
-	if err != nil {
-		return err
+// stop serving, processes, applications
+func (k *Kernel) stopLocked() error {
+	if !k.running.Load() {
+		return ErrNotRunning
 	}
-	p.Start()
-	k.setState(key, clients.StateRunning)
 
-	logger.Info(logger.InfoLog{Message: "started process", UserID: key.UserID, ProcessID: key.ProcessID})
+	k.running.Store(false)
+
+	for key, p := range k.procs {
+		p.Stop()
+		p.Close()
+		delete(k.procs, key)
+	}
+
+	for _, app := range k.apps {
+		if k.up[app.Name()] {
+			app.Stop()
+			delete(k.up, app.Name())
+		}
+	}
+
+	k.eng.Close()
+	k.cancel()
+	k.cancel = nil
+
+	logger.Info(logger.Log{FormattedMessage: "runtime stopped"})
 	return nil
 }
 
-func (k *Kernel) StopProcess(key clients.ProcessKey) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	p, err := k.processLocked(key)
-	if err != nil {
-		return err
-	}
-	p.Stop()
-	k.setState(key, clients.StateStopped)
-
-	logger.Debug(logger.InfoLog{Message: "stopped process", UserID: key.UserID, ProcessID: key.ProcessID})
-	return nil
+func (k *Kernel) fail(err error) error {
+	msg := err.Error()
+	k.lastErr.Store(&msg)
+	logger.Error(logger.Log{FormattedMessage: fmt.Sprintf("runtime start failed error=%v", err)})
+	return err
 }
 
-// RestartProcess rebuilds a process from its current settings. Called after
-// settings are saved.
-func (k *Kernel) RestartProcess(key clients.ProcessKey) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	old, err := k.processLocked(key)
-	if err != nil {
-		return err
-	}
-	if err := k.rebuildLocked(key, old); err != nil {
-		return fmt.Errorf("process removed; settings did not load: %w", err)
-	}
-
-	k.procs[key].Start()
-	k.setState(key, clients.StateRunning)
-
-	logger.Debug(logger.InfoLog{Message: "restarted process", UserID: key.UserID, ProcessID: key.ProcessID})
-	return nil
-}
-
-// rebuildLocked replaces a loaded process with one built from its current
-// settings, not started. The old one is gone either way: on failure the
-// process is left removed and recorded stopped.
-func (k *Kernel) rebuildLocked(key clients.ProcessKey, old Process) error {
-	old.Stop()
-	old.Close()
-	delete(k.procs, key)
-	k.eng.Release(key)
-
-	if err := k.addLocked(key); err != nil {
-		k.setState(key, clients.StateStopped)
-		return err
-	}
-	return nil
-}
-
-func (k *Kernel) DeleteProcess(key clients.ProcessKey) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	p, err := k.processLocked(key)
-	if err != nil {
-		return err
-	}
-
-	p.Stop()
-	p.Close()
-	delete(k.procs, key)
-	k.eng.Release(key)
-
-	if err := k.store.Forget(key); err != nil {
-		logger.Warn(logger.ErrorLog{Message: fmt.Sprintf("unable to forget process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
-	}
-
-	logger.Debug(logger.InfoLog{Message: "deleted process", UserID: key.UserID, ProcessID: key.ProcessID})
-	return nil
-}
-
-func (k *Kernel) ProcessRunning(key clients.ProcessKey) (bool, error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	p, err := k.processLocked(key)
-	if err != nil {
-		return false, err
-	}
-	return p.Running(), nil
-}
-
-func (k *Kernel) appFor(key clients.ProcessKey) (App, error) {
+func (k *Kernel) getAppByProcessKey(key clients.ProcessKey) (App, error) {
 	if !k.running.Load() {
 		return nil, ErrNotRunning
 	}
@@ -476,28 +202,8 @@ func (k *Kernel) appFor(key clients.ProcessKey) (App, error) {
 	return app, nil
 }
 
-func (k *Kernel) processLocked(key clients.ProcessKey) (Process, error) {
-	if !k.running.Load() {
-		return nil, ErrNotRunning
-	}
-	p, ok := k.procs[key]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return p, nil
-}
-
-// setState persists the last instruction for a process. A failure here costs
-// the restore on the next boot, not the process itself, so it only warns.
 func (k *Kernel) setState(key clients.ProcessKey, state clients.State) {
 	if err := k.store.SetState(key, state); err != nil {
-		logger.Warn(logger.ErrorLog{Message: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
+		logger.Warn(logger.Log{Application: key.App, FormattedMessage: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
 	}
 }
-
-// ---- host ----
-
-type host struct{ k *Kernel }
-
-func (h *host) Settings(name string) (json.RawMessage, error) { return h.k.store.AppSettings(name) }
-func (h *host) Engine() *engine.Engine                    { return h.k.eng }

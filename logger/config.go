@@ -6,72 +6,33 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 )
 
+const LevelBet slog.Level = 2
+
+// core logger, stderr and in-mem ring
 type Config struct {
-	Application   string
-	DefaultUserID string // sent when no user ID is provided
+	Application   string // used if log has no app value
+	DefaultUserID string
 
+	StdErrLevel slog.Level
+	Ring        RingConfig
+}
+
+type RingConfig struct {
 	Level slog.Level
-
-	Telegram *TelegramSetup // optional
-
-	Setup LoggerSetup
+	Size  int // how many entries are kept
 }
 
-type TelegramSetup struct {
-	BotToken string
+const defaultRingSize = 10000
 
-	BetChannelID *int64
-	LogChannelID *int64
-}
-
-func (t *TelegramSetup) channelFor(logType string) *int64 {
-	if logType == "BET" {
-		return t.BetChannelID
-	} else {
-		return t.LogChannelID
+func (r RingConfig) size() int {
+	if r.Size <= 0 {
+		return defaultRingSize
 	}
+	return r.Size
 }
 
-func (t *TelegramSetup) enabled() bool {
-	return t != nil && t.BotToken != "" &&
-		(t.LogChannelID != nil || t.BetChannelID != nil)
-}
-
-type LoggerSetup struct {
-	// how many recent entries the live view keeps in memory
-	RingSize int
-
-	// bounds the Telegram sink channel
-	// full queue drops the record
-	TelegramQueueSize int
-
-	// collapses identical repeated messages sent to Telegram
-	// within this window into a single "+N more" summary.
-	// zero disables
-	DedupeWindow time.Duration
-}
-
-const (
-	defaultRingSize  = 10000
-	defaultQueueSize = 1000
-)
-
-// withDefaults guards against a zero-sized ring or queue, which would panic
-// or drop everything. DedupeWindow is left alone: zero means disabled.
-func (s LoggerSetup) withDefaults() LoggerSetup {
-	if s.RingSize <= 0 {
-		s.RingSize = defaultRingSize
-	}
-	if s.TelegramQueueSize <= 0 {
-		s.TelegramQueueSize = defaultQueueSize
-	}
-	return s
-}
-
-// ParseLevel maps debug, info, bet, warn/warning or error to a level.
 func ParseLevel(v string) (slog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "debug":
@@ -86,4 +47,11 @@ func ParseLevel(v string) (slog.Level, error) {
 		return slog.LevelError, nil
 	}
 	return 0, fmt.Errorf("logger: unknown level %q", v)
+}
+
+func LevelName(l slog.Level) string {
+	if l == LevelBet {
+		return "BET"
+	}
+	return l.String()
 }

@@ -9,11 +9,12 @@ engine service, no logger service.
 cmd/wagering/main.go        wiring only: bucket → logger → kernel → apps → API
 cmd/migrate-settings/       one-shot: Postgres user_settings rows → JSON documents
 kernel/                     the host: runtime, process registry, control plane
-engine/                     the betting engine: sessions, staking, placement, results
+engine/                     the betting engine: sessions, staking, placement
 apps/<name>/                an application: its feeds, its logic, its settings
 betting/                    betting.Client + betfair/ + betmatic/ (tote later)
 clients/                    the client store: doc/ (JSON in a bucket), mem/ for tests
-logger/                     stderr + in-memory ring + Telegram, in-process
+logger/                     stderr + in-memory ring; outputs plug in as Sinks
+logger/telegram/            the Telegram Sink: queue, pacing, dedupe, cards
 platform/                   auth (JWKS), store (file:// and s3:// buckets), util
 ```
 
@@ -90,28 +91,29 @@ its `settings` package. `cmd/migrate-settings` converts the old
 `logger` keeps the last `LOG_RING_SIZE` entries in memory
 and serves them at `GET /api/logs?level=&app=&process=&user=&since=&limit=`;
 non-admins only see their own. Append is one slot write under a mutex, so the
-bet path pays nothing it would notice. Telegram gets Warn/Error/Bet as before.
-Nothing is written to disk or a database.
+bet path pays nothing it would notice. Bets never go in the ring. Telegram
+gets `LOG_TG_LEVEL` and up, plus every bet. Nothing is written to disk or a
+database.
 
 Every line names a race the same way: `RaceDetails.Venue` is the canonical
 Betmatic track name whichever feed or bookmaker produced it, set once per
-packet in `pegasus.Handle` via `core.CanonicalVenue`.
+packet in the feed handlers (`onTripleS`, `onTPD`) via `core.CanonicalVenue`.
 `core.BetmaticNameForBetfair` maps a Betfair track for anything logging from
 that side.
 
 ## Engine
 
 `engine/` is one instance per runtime, shared by every process of every app.
-It owns the bookmaker sessions, the staking arithmetic, request building,
-placement and the Betmatic results poller. It never reads settings and has no
-opinion about which runner or when.
+It owns the bookmaker sessions, the staking arithmetic, request building and
+placement. It never reads settings and has no opinion about which runner or
+when.
 
 | decides | owner |
 |---|---|
 | which runner, which side, now or not yet, confidence (unit) | strategy — pure, sees the race clock |
 | dollars, MBL, acceptable odds, delay | scope settings — per process, per country/code |
 | unit × stake → liability / target profit / limit price / ticks | engine |
-| which session, label, place, watch result, (later) dedupe | engine |
+| which session, label, place, (later) dedupe | engine |
 | which bet *type* (Betmatic FIXED_PROFIT vs HIGH_ODDS_FIRST) | app's dispatch (thin) |
 
 ```go
@@ -138,7 +140,7 @@ DAVO's were, once:
 - **Boot starts nothing.** `main.go` builds the kernel and serves the API; the
   runtime starts only on `POST /api/system/start`, so a deploy never connects
   a feed or places a bet by itself.
-- **Start** builds `Accounts` and `Results`, calls every app's `Start`, then
+- **Start** builds the engine (sessions), calls every app's `Start`, then
   restores processes from the store. One app failing to start is reported in
   `Status().Apps[name].Error` and does not stop the others. All of them failing
   fails the start.
@@ -179,15 +181,21 @@ ADMIN's per-app base URLs become one host with `/api/pegasus/...`.
 Same internals as before, minus everything the kernel now owns:
 
 - `app.go` — `Start` = admin Betfair client + Triple-S + TPD (what `runtime/setup.go`
-  did); `Handle` = the fan-out (what `engine.Handle` did); `NewProcess` = parse
+  did); `onTripleS` / `onTPD` = the fan-out, one per feed, each offering its own
+  raw message type (what `engine.Handle` did); `NewProcess` = parse
   settings, validate scopes, claim sessions from `Accounts`, build a process.
 - `settings/` — `ProcessSettings` and the parsers from `clients.Values`. This is
   the old `store` package with the SQL removed.
-- `process/` — the old `tenant`. Inbox, per-scope strategy, dispatch.
+- `process/` — the old `tenant`. One inbox per feed (`triples.RaceMessage`,
+  `tpd.Progress`), one strategy per feed, dispatch.
 - `dispatch/` — maps the feed's venue to bookmaker names, attaches the Betfair
-  book, builds an `engine.Order` with label `pegasus_<pid>_<code>`. ~40 lines.
-- `strategy/`, `core/`, `tpd/`, `triples/` — untouched. `core.Side` and
-  `core.BetmaticVenue` are aliases of the engine's types.
+  book, builds an `engine.Order` with label `pegasus_<pid>`. ~40 lines.
+- `strategy/` — one strategy per feed, no interface: `ForwardProgress` takes
+  `triples.RaceMessage` (thoroughbred and harness), `TPDLeader` takes
+  `tpd.Progress`. Each gets the raw message plus its `core.RaceRef`.
+- `core/`, `tpd/`, `triples/` — `core.RaceRef` is a race's identity, derived by
+  each feed once per message. `core.Side` and `core.BetmaticVenue` are aliases
+  of the engine's types.
 
 ### Scope
 
@@ -195,12 +203,12 @@ A *scope* is one `country/code` key inside a process — `US/THOROUGHBRED`,
 `AU/HARNESS`. It is the unit of money: each scope row (`meta2` in
 `user_settings`) carries its own stake, MBL, min/max odds and delays. A
 process bets a race iff it has an *active* scope (something staked) for that
-race's country and code; that lookup is `WantsMessage`, one map read on the
-fan-out goroutine. The strategy is chosen by `(feed, code)` — the feed follows
-from the country — and each scope gets its own strategy instance with its own
-per-race state, so two scopes never share an "already bet" flag. Validated at
-add time: the feed covering the country must be enabled and a strategy must
-exist for the pairing.
+race's country and code; that lookup is `Wants`, an atomic load and one map
+read on the fan-out goroutine. The strategy follows from the feed — Triple-S
+goes to `ForwardProgress`, TPD to `TPDLeader` — and keeps per-race state keyed
+by the race, so two processes never share an "already bet" flag. Validated at
+add time: the feed covering the country must be enabled and its strategy must
+bet that racing code (`strategy.Covers`).
 
 Adding a strategy: one file in `strategy/`, one case in `strategy.For`.
 
@@ -216,10 +224,23 @@ boot, and the logging come for free.
 ## Logging
 
 `logger` is the old LOGGER service as a package, minus the Postgres sink.
-`logger.Init` in `main.go` with level, sizes and Telegram all passed in on
-`logger.Config` — Bet logs go to `LOG_TG_BET_CHANNEL_ID`, everything else to
-`LOG_TG_CHANNEL_ID`. The package-level `logger.Info/Warn/Error/Bet/Debug` are
-the one deliberate global. The package never reads the environment.
+`main.go` builds a `logger.Config` (stderr and ring levels, ring size) and,
+separately, a `telegram.Config`. `telegram.New` checks the bot token; if it
+fails, the logger runs without Telegram. Both go to
+`logger.Init(cfg, sinks...)`. Any output is a `logger.Sink`
+(`Enabled`/`Enqueue`/`Stop`); the core doesn't know about Telegram.
+
+Every line becomes one `logger.Record`: the time, level, fallback app and user,
+call site, and `Request`/`Response` snapshotted as JSON. The ring keeps it,
+`GET /api/logs` serves it, and each Sink is handed it.
+
+Telegram: bets go to `LOG_TG_BET_CHANNEL_ID`, and `LOG_TG_LEVEL` and up go to
+`LOG_TG_CHANNEL_ID`. Each channel is paced to 18 messages a minute, a 429 is
+waited out, and repeats within `LOG_TG_DEDUPE_MS` collapse into "+N more". It
+uses the Bot API over plain HTTP, with no library.
+
+The package-level `logger.Info/Warn/Error/Bet/Debug` are the one deliberate
+global. Neither package reads the environment.
 
 ## Env
 

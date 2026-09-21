@@ -2,7 +2,7 @@
 //
 // Process is one bookmaker account pairing. It owns the inbox, the strategies
 // serving its scopes, and the dispatcher holding its sessions. It knows nothing
-// about how a bet is placed and nothing about any feed's wire format.
+// about how a bet is placed.
 
 package process
 
@@ -10,35 +10,51 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"pegasus_suite/apps/pegasus/core"
 	"pegasus_suite/apps/pegasus/dispatch"
 	"pegasus_suite/apps/pegasus/settings"
 	"pegasus_suite/apps/pegasus/strategy"
+	"pegasus_suite/apps/pegasus/tpd"
+	triples "pegasus_suite/apps/pegasus/triples"
 	"pegasus_suite/logger"
 )
+
+const inboxSize = 100
+
+type tripleSMsg struct {
+	m   triples.RaceMessage
+	ref core.RaceRef
+}
+
+type tpdMsg struct {
+	p   tpd.Progress
+	ref core.RaceRef
+}
 
 type Process struct {
 	Settings settings.ProcessSettings
 
-	// Inbox is fed by the application's fan-out. Buffered so a slow decision
-	// never blocks the feed; a full inbox drops.
-	Inbox chan core.Update
+	// Fed by the application's fan-out. Buffered so a slow decision never
+	// blocks the feed; a full inbox drops.
+	tripleS chan tripleSMsg
+	tpd     chan tpdMsg
 
 	dispatcher     *dispatch.Dispatcher
 	getBetfairRace func(core.RaceRef) *core.BetfairRace
 	setPriceFeed   func(core.RaceRef, bool)
 	onClose        func()
 
+	running atomic.Bool
+
 	mu     sync.Mutex
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	// One strategy per scope, built on first use. Each holds its own per-race
-	// state, so two scopes can never contaminate one another, and two processes
-	// on the same race never share a "already bet" flag. Only the run goroutine
-	// touches this.
-	strategies map[string]strategy.Strategy
+	// Only the run goroutine touches these.
+	forwardProgress *strategy.ForwardProgress
+	tpdLeader       *strategy.TPDLeader
 
 	// Races this process has already reported on, so the first update for a race
 	// logs what it decided and the ticks that follow stay quiet.
@@ -50,24 +66,63 @@ func New(s settings.ProcessSettings, d *dispatch.Dispatcher, getBetfairRace func
 	cancel() // start stopped
 
 	return &Process{
-		Settings:       s,
-		Inbox:          make(chan core.Update, 100),
-		dispatcher:     d,
-		getBetfairRace: getBetfairRace,
-		setPriceFeed:   setPriceFeed,
-		onClose:        onClose,
-		strategies:     make(map[string]strategy.Strategy),
-		seenRaces:      make(map[string]bool),
-		ctx:            ctx,
-		cancel:         cancel,
+		Settings:        s,
+		tripleS:         make(chan tripleSMsg, inboxSize),
+		tpd:             make(chan tpdMsg, inboxSize),
+		dispatcher:      d,
+		getBetfairRace:  getBetfairRace,
+		setPriceFeed:    setPriceFeed,
+		onClose:         onClose,
+		forwardProgress: strategy.NewForwardProgress(),
+		tpdLeader:       strategy.NewTPDLeader(),
+		seenRaces:       make(map[string]bool),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 }
 
-// WantsMessage runs on the fan-out goroutine, so it only reads Settings, which
-// is immutable for the life of the process. One map lookup, no decode.
-func (p *Process) WantsMessage(u core.Update) bool {
-	scope, ok := p.Settings.Scopes[u.Ref.Scope]
+// Wants runs on the fan-out goroutine, so it only reads Settings, which is
+// immutable for the life of the process. One map lookup, no decode.
+func (p *Process) Wants(ref core.RaceRef) bool {
+	if !p.running.Load() {
+		return false
+	}
+	scope, ok := p.Settings.Scopes[ref.Scope]
 	return ok && scope.Active()
+}
+
+func (p *Process) OfferTripleS(m triples.RaceMessage, ref core.RaceRef) bool {
+	if !p.Wants(ref) {
+		return false
+	}
+	select {
+	case p.tripleS <- tripleSMsg{m: m, ref: ref}:
+	default:
+		p.inboxFull(ref)
+	}
+	return true
+}
+
+func (p *Process) OfferTPD(pr tpd.Progress, ref core.RaceRef) bool {
+	if !p.Wants(ref) {
+		return false
+	}
+	select {
+	case p.tpd <- tpdMsg{p: pr, ref: ref}:
+	default:
+		p.inboxFull(ref)
+	}
+	return true
+}
+
+func (p *Process) inboxFull(ref core.RaceRef) {
+	logger.Warn(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: "race inbox full",
+		UserID:           p.Settings.UserID,
+		ProcessID:        p.Settings.ID,
+		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+	})
 }
 
 func (p *Process) Start() {
@@ -81,8 +136,9 @@ func (p *Process) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.ctx = ctx
 	p.cancel = cancel
+	p.running.Store(true)
 
-	logger.Debug(logger.InfoLog{Message: "starting process", ProcessID: p.Settings.ID, UserID: p.Settings.UserID})
+	logger.Debug(logger.Log{Application: core.AppName, FormattedMessage: "starting process", ProcessID: p.Settings.ID, UserID: p.Settings.UserID})
 
 	go p.run(ctx)
 }
@@ -94,14 +150,11 @@ func (p *Process) Stop() {
 	if p.ctx.Err() != nil {
 		return
 	}
+	p.running.Store(false)
 	p.cancel()
 }
 
-func (p *Process) Running() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.ctx.Err() == nil
-}
+func (p *Process) Running() bool { return p.running.Load() }
 
 // Close removes the process from the application's fan-out. The kernel
 // releases its sessions afterwards.
@@ -119,105 +172,88 @@ func (p *Process) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info(logger.InfoLog{
-				Message:   fmt.Sprintf("process stopped reason=%v", ctx.Err()),
-				UserID:    p.Settings.UserID,
-				ProcessID: p.Settings.ID,
+			logger.Info(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("process stopped reason=%v", ctx.Err()),
+				UserID:           p.Settings.UserID,
+				ProcessID:        p.Settings.ID,
 			})
 			return
 
-		case u := <-p.Inbox:
-			p.handleUpdate(u)
+		case msg := <-p.tripleS:
+			scope, ok := p.scopeFor(msg.ref)
+			if !ok {
+				continue
+			}
+			d, err := p.forwardProgress.Select(msg.m, msg.ref, scope.BetfairDelay, scope.BetmaticDelay, p.getBetfairRace)
+			p.act(msg.ref, scope, d, err)
+
+		case msg := <-p.tpd:
+			scope, ok := p.scopeFor(msg.ref)
+			if !ok {
+				continue
+			}
+			d, err := p.tpdLeader.Select(msg.p, msg.ref, scope.BetfairDelay, scope.BetmaticDelay)
+			p.act(msg.ref, scope, d, err)
 		}
 	}
 }
 
-// strategyFor resolves the strategy serving a scope. The pairing of feed and
-// racing code decides it; a process no longer chooses.
-func (p *Process) strategyFor(ref core.RaceRef) (strategy.Strategy, error) {
-	if strat, ok := p.strategies[ref.Scope]; ok {
-		return strat, nil
-	}
-
-	strat, err := strategy.For(ref.Provider, ref.Code)
-	if err != nil {
-		return nil, err
-	}
-
-	logger.Debug(logger.InfoLog{
-		Message:   "resolved strategy=" + strat.Name() + " for scope=" + ref.Scope,
-		UserID:    p.Settings.UserID,
-		ProcessID: p.Settings.ID,
-	})
-
-	p.strategies[ref.Scope] = strat
-	return strat, nil
-}
-
-// handleUpdate is the whole of a process's decision path: find the scope, ask
-// the strategy, hand whatever comes back to dispatch. Every bet goes out on its
-// own goroutine so no bookmaker can hold up the next message.
-func (p *Process) handleUpdate(u core.Update) {
-	scope, ok := p.Settings.Scopes[u.Ref.Scope]
+func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {
+	scope, ok := p.Settings.Scopes[ref.Scope]
 	if !ok || !scope.Active() {
-		return
+		return scope, false
 	}
 
-	race := &logger.RaceDetails{Venue: u.Ref.VenueName, RaceNumber: u.Ref.RaceNumber}
-
-	if u.Ref.Status == core.StatusFinished {
-		delete(p.seenRaces, u.Ref.Key)
-	} else if !p.seenRaces[u.Ref.Key] {
+	if ref.Status == core.StatusFinished {
+		delete(p.seenRaces, ref.Key)
+	} else if !p.seenRaces[ref.Key] {
 		// First update for this race only: what it matched and what it will
 		// stake. Anything logged unconditionally here buries everything else.
-		p.seenRaces[u.Ref.Key] = true
-		logger.Debug(logger.InfoLog{
-			Message:     fmt.Sprintf("race in scope=%v provider=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", u.Ref.Scope, u.Ref.Provider, u.Ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
-			UserID:      p.Settings.UserID,
-			ProcessID:   p.Settings.ID,
-			RaceDetails: race,
+		p.seenRaces[ref.Key] = true
+		logger.Debug(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("race in scope=%v provider=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Provider, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
+			UserID:           p.Settings.UserID,
+			ProcessID:        p.Settings.ID,
+			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 		})
 	}
+	return scope, true
+}
 
-	strat, err := p.strategyFor(u.Ref)
+// act hands a strategy's decision on. Every bet goes out on its own goroutine
+// so no bookmaker can hold up the next message.
+func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, decision core.Decision, err error) {
 	if err != nil {
-		logger.Error(logger.ErrorLog{
-			Message:     fmt.Sprintf("unable to resolve strategy error=%v", err),
-			UserID:      p.Settings.UserID,
-			ProcessID:   p.Settings.ID,
-			RaceDetails: race,
-		})
-		return
-	}
-
-	decision, err := strat.Select(u, scope.BetfairDelay, scope.BetmaticDelay, p.getBetfairRace)
-	if err != nil {
-		logger.Error(logger.ErrorLog{
-			Message:     fmt.Sprintf("unable to make selections error=%v", err),
-			UserID:      p.Settings.UserID,
-			ProcessID:   p.Settings.ID,
-			RaceDetails: race,
+		logger.Error(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("unable to make selections error=%v", err),
+			UserID:           p.Settings.UserID,
+			ProcessID:        p.Settings.ID,
+			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 		})
 		return
 	}
 
 	// nil when the process has no betfair account, so there are no prices to poll
 	if p.setPriceFeed != nil {
-		p.setPriceFeed(u.Ref, decision.Tracking)
+		p.setPriceFeed(ref, decision.Tracking)
 	}
 
 	if len(decision.Bets) == 0 {
 		return
 	}
 
-	logger.Debug(logger.InfoLog{
-		Message:     fmt.Sprintf("selections made strategy=%v bets=%+v", strat.Code(), decision.Bets),
-		UserID:      p.Settings.UserID,
-		ProcessID:   p.Settings.ID,
-		RaceDetails: race,
+	logger.Debug(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("selections made provider=%v bets=%+v", ref.Provider, decision.Bets),
+		UserID:           p.Settings.UserID,
+		ProcessID:        p.Settings.ID,
+		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 
 	for _, b := range decision.Bets {
-		go p.dispatcher.Place(b, scope, strat.Code())
+		go p.dispatcher.Place(b, scope)
 	}
 }

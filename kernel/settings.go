@@ -1,10 +1,9 @@
 // kernel/settings.go
 //
-// Saving settings. A user saves their own process documents (an admin can save
-// anyone's), and admins save the admin-level ones. Either way the whole
-// document is sent; the kernel decodes it into
-// the type its owner names and runs that type's Validate before anything is
-// written, so the store only ever holds documents that parse.
+// user saves their own process settings, an admin can save anyones
+// whole settings document is sent, the kernel decodes into
+// the type its owner names and runs the type's Validate() before anything is
+// written, so the store only ever holds documents that parse and are valid
 
 package kernel
 
@@ -20,29 +19,16 @@ import (
 	"pegasus_suite/logger"
 )
 
-var (
-	ErrInvalidSettings = errors.New("invalid settings")
-	ErrUnknownSettings = errors.New("unknown settings document")
-	ErrNotReloaded     = errors.New("settings saved; process did not reload")
-)
-
-// Settings is a settings document's type. Validate checks what the document
-// alone can tell; anything that depends on the running app is checked when
-// the document is loaded.
 type Settings interface {
 	Validate() error
 }
 
-// shared are the admin-level documents no one application owns: the admin
-// accounts every app may use. Applications add their own through
-// AdminSettings.
+// admin-level, shared between any apps
 var shared = map[string]func() Settings{
 	"betfair":  func() Settings { return &engine.BetfairCredentials{} },
 	"betmatic": func() Settings { return &engine.BetmaticCredentials{} },
 }
 
-// decode reads doc into into and validates it. Unknown fields are refused so
-// a misspelt key is an error rather than a setting that silently does nothing.
 func decode(doc json.RawMessage, into Settings) error {
 	dec := json.NewDecoder(bytes.NewReader(doc))
 	dec.DisallowUnknownFields()
@@ -58,9 +44,7 @@ func decode(doc json.RawMessage, into Settings) error {
 	return nil
 }
 
-// ---- process settings ----
-
-func (k *Kernel) ProcessSettings(key clients.ProcessKey) (json.RawMessage, error) {
+func (k *Kernel) GetProcessSettings(key clients.ProcessKey) (json.RawMessage, error) {
 	if _, ok := k.byName[key.App]; !ok {
 		return nil, ErrUnknownApp
 	}
@@ -71,11 +55,6 @@ func (k *Kernel) ProcessSettings(key clients.ProcessKey) (json.RawMessage, error
 	return doc, err
 }
 
-// SaveProcessSettings validates doc against the application's process
-// settings type and writes it. The runtime need not be running, so bad
-// settings can be fixed while it is down. A loaded process is rebuilt from
-// the new document and left running if it was; if the rebuild fails the
-// document is still saved and ErrNotReloaded says why.
 func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage) error {
 	app, ok := k.byName[key.App]
 	if !ok {
@@ -91,7 +70,7 @@ func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage
 	if err := k.store.PutProcess(key, doc); err != nil {
 		return fmt.Errorf("unable to save process settings: %w", err)
 	}
-	logger.Info(logger.InfoLog{Message: "saved process settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Info(logger.Log{Application: key.App, FormattedMessage: "saved process settings", UserID: key.UserID, ProcessID: key.ProcessID})
 
 	if !k.running.Load() {
 		return nil
@@ -110,15 +89,8 @@ func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage
 		k.setState(key, clients.StateRunning)
 	}
 
-	logger.Debug(logger.InfoLog{Message: "reloaded process from saved settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "reloaded process from saved settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
-}
-
-// ProcessInfo is one of a user's processes as ADMIN lists them: every process
-// with a settings document, and whether the runtime has it.
-type ProcessInfo struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
 }
 
 const (
@@ -129,7 +101,7 @@ const (
 )
 
 // ListProcesses is every process a user has settings for in an application,
-// sorted by id, with its status in the runtime.
+// sorted by id, with its status in the runtime
 func (k *Kernel) ListProcesses(app, userID string) ([]ProcessInfo, error) {
 	if _, ok := k.byName[app]; !ok {
 		return nil, ErrUnknownApp
@@ -183,7 +155,7 @@ func (k *Kernel) DeleteProcessSettings(key clients.ProcessKey) error {
 		return fmt.Errorf("unable to delete process settings: %w", err)
 	}
 
-	logger.Debug(logger.InfoLog{Message: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -228,6 +200,6 @@ func (k *Kernel) SaveAppSettings(name string, doc json.RawMessage) error {
 	if err := k.store.PutAppSettings(name, doc); err != nil {
 		return fmt.Errorf("unable to save %s settings: %w", name, err)
 	}
-	logger.Debug(logger.InfoLog{Message: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
+	logger.Debug(logger.Log{FormattedMessage: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
 	return nil
 }

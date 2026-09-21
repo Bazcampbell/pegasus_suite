@@ -120,6 +120,8 @@ type NotificationRequest struct {
 }
 
 type NotificationResponse struct {
+	Id      string `json:"id"`
+	Message string `json:"message"`
 }
 
 type BookieAccountControlRequest struct {

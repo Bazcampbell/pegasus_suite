@@ -5,6 +5,7 @@ package tpd
 import (
 	"context"
 	"fmt"
+	"pegasus_suite/apps/pegasus/core"
 	"sync"
 	"time"
 
@@ -78,8 +79,9 @@ func (l *GmaxClient) Lookup(sharecode string) (Race, bool) {
 	if len(sharecode) == sharecodeLen {
 		select {
 		case l.wanted <- sharecode[2:10]:
-			logger.Debug(logger.InfoLog{
-				Message: fmt.Sprintf("tpd race list miss; queued a fetch sharecode=%v date=%v", sharecode, sharecode[2:10]),
+			logger.Debug(logger.Log{
+				Application:      core.AppName,
+				FormattedMessage: fmt.Sprintf("tpd race list miss; queued a fetch sharecode=%v date=%v", sharecode, sharecode[2:10]),
 			})
 		default:
 		}
@@ -162,8 +164,9 @@ func (l *GmaxClient) refreshAll(ctx context.Context) error {
 func (l *GmaxClient) load(date string) error {
 	err := l.fetch(date)
 	if err != nil {
-		logger.Warn(logger.ErrorLog{
-			Message: fmt.Sprintf("tpd race list fetch failed error=%v", err),
+		logger.Warn(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("tpd race list fetch failed error=%v", err),
 		})
 	}
 	return err
@@ -178,8 +181,9 @@ func (l *GmaxClient) checkStale() {
 		return
 	}
 
-	logger.Error(logger.ErrorLog{
-		Message: fmt.Sprintf("tpd race list stale; no race will resolve and no bet will place last_success=%v", last),
+	logger.Error(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("tpd race list stale; no race will resolve and no bet will place last_success=%v", last),
 	})
 }
 

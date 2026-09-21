@@ -1,40 +1,26 @@
 // logger.go
 //
-// One logging package for the whole suite. An application initialises its
-// Postgres pool and reads its Telegram settings, hands both to Init, and from
-// then on logs typed values from anywhere in the tree:
+// One logging package for the whole suite. main hands Init a Config and any
+// extra outputs, and from then on anything in the tree logs typed values:
 //
+//	tg, err := telegram.New(telegram.Config{...}) // an optional Sink
 //	logger.Init(logger.Config{
-//	    Application:   "pegasus",
+//	    Application:   "pegasus_suite",
 //	    DefaultUserID: adminUserID,
-//	    DB:            db.Pool(),
-//	    Telegram:      &logger.TelegramSetup{...},
-//	})
+//	    StdErrLevel:   slog.LevelDebug,
+//	    Ring:          logger.RingConfig{Level: slog.LevelInfo, Size: 10000},
+//	}, tg)
 //	defer logger.Stop()
 //
-//	logger.Info(logger.InfoLog{Message: "server started"})
-//	logger.Error(logger.ErrorLog{Message: "bet failed", Error: err})
+//	logger.Info(logger.Log{Application: "pegasus", FormattedMessage: "feed connected"})
+//	logger.Bet(logger.BetLog{...})
 //
-// Level policy:
+// Every line goes to each output whose minimum level it meets:
+//   - stderr, at Config.StdErrLevel: synchronous, from process start.
+//   - the ring, at Config.Ring.Level: what GET /api/logs reads. Never bets.
+//   - each Sink, which decides for itself (Sink.Enabled).
 //
-//	Debug — lifecycle, token refresh success, pool ops, every race message
-//	Info  — first-time race, triple-s connect/subscribe, server start
-//	Bet   — bet successfully placed
-//	Warn  — token refresh failed, connection lost, reconnect failed
-//	Error — decode failure, strategy error, http 5xx, startup failures
-//
-// Output:
-//   - stderr (slog.TextHandler) — always, from process start.
-//   - Postgres logs table — when Config.DB is set. Entries fan out to a
-//     buffered channel drained by a background goroutine that bulk-inserts.
-//   - Telegram — when Config.Telegram is set, routed per level to a channel,
-//     rate limited and deduped.
-//
-// Both async sinks drop rather than block when their queue is full: logging
-// must never stall the application.
-//
-// The level comes in on Config.Level; main reads it from LOG_LEVEL. Nothing in
-// this package reads the environment.
+// Nothing here reads the environment and nothing here knows about Telegram.
 
 package logger
 
@@ -48,37 +34,28 @@ import (
 	"time"
 )
 
-// Logger owns the stderr handler and its sinks. Most applications never touch
-// this type directly — Init installs one as the package default and the
-// package-level functions delegate to it.
+// output beyond stderr and ring
+// enqueue cannot block
+type Sink interface {
+	Enabled(level slog.Level) bool
+	Enqueue(r Record)
+	Stop()
+}
+
 type Logger struct {
-	slog *slog.Logger
-
-	application   string
-	defaultUserID string
-
-	ring *ringSink
-	tg   sink
+	cfg   Config
+	slog  *slog.Logger
+	ring  *ring
+	sinks []Sink
 
 	stopOnce sync.Once
 }
 
-// sink is the narrow contract emit needs. Both real sinks are asynchronous:
-// enqueue must never block, dropping instead when the queue is full.
-type sink interface {
-	enqueue(Entry)
-	stop()
-}
-
 var std atomic.Pointer[Logger]
 
-func init() {
-	// Anything logged before Init — config parsing, pool setup, and any
-	// failure therein — still reaches stderr rather than vanishing.
-	std.Store(bootstrap())
-}
+// anything logged before Init reaches stderr
+func init() { std.Store(bootstrap()) }
 
-// bootstrap builds a stderr-only logger at info with no sinks.
 func bootstrap() *Logger {
 	return &Logger{slog: slog.New(newTextHandler(slog.LevelInfo))}
 }
@@ -98,150 +75,97 @@ func newTextHandler(level slog.Level) slog.Handler {
 	})
 }
 
-// New builds a Logger and starts its sinks. Prefer Init unless you genuinely
-// need more than one Logger in a process.
-//
-// A Telegram client that fails to construct is not fatal: the Logger is
-// returned with the remaining sinks live, alongside the error, so a bad bot
-// token degrades logging instead of failing startup.
-func New(cfg Config) (*Logger, error) {
-	setup := cfg.Setup.withDefaults()
-
+// installs logger project wide
+// previous one is stopped if found, stops leaking routines
+func Init(cfg Config, sinks ...Sink) {
 	l := &Logger{
-		slog:          slog.New(newTextHandler(cfg.Level)),
-		application:   cfg.Application,
-		defaultUserID: cfg.DefaultUserID,
+		cfg:  cfg,
+		slog: slog.New(newTextHandler(cfg.StdErrLevel)),
+		ring: newRing(cfg.Ring.size()),
 	}
-
-	l.ring = newRingSink(setup.RingSize)
-
-	var tgErr error
-	if cfg.Telegram.enabled() {
-		client, err := NewTelegramClient(cfg.Telegram.BotToken)
-		if err != nil {
-			tgErr = err
-		} else {
-			l.tg = newTGSink(client, cfg.Telegram, setup)
+	for _, s := range sinks {
+		if s != nil {
+			l.sinks = append(l.sinks, s)
 		}
 	}
 
-	return l, tgErr
-}
-
-// Init builds a Logger from cfg and installs it as the package default, so
-// logger.Info and friends work from anywhere.
-//
-// Any previously installed default is stopped first, so calling Init twice
-// (a settings reload, say) doesn't leak sink goroutines.
-//
-// A non-nil error means Telegram specifically failed to initialise; the logger
-// is installed and working regardless. Callers usually want to warn and
-// continue rather than abort startup.
-func Init(cfg Config) error {
-	l, err := New(cfg)
-
 	if old := std.Swap(l); old != nil {
-		old.Stop()
+		old.stop()
 	}
-	// Third-party code logging through plain slog still reaches stderr. It
-	// does not reach the ring or Telegram sinks — those are fed by the typed
-	// API, which a generic slog.Record can't satisfy.
-	slog.SetDefault(l.slog)
-
-	return err
-}
-
-// Default returns the installed package logger.
-func Default() *Logger { return std.Load() }
-
-// SetDefault installs l as the package logger. The previous default is NOT
-// stopped — use Init if you want that handled.
-func SetDefault(l *Logger) {
-	if l == nil {
-		return
-	}
-	std.Store(l)
+	// third-party code logging through plain slog reaches stderr only
 	slog.SetDefault(l.slog)
 }
 
-// Stop drains and closes the default logger's sinks, then leaves a
-// stderr-only logger installed so late logs during shutdown still print.
+// flushes and closes the sinks
+// leaves stderr log only so shutdown logs still go through
 func Stop() {
 	if old := std.Swap(bootstrap()); old != nil {
-		old.Stop()
+		old.stop()
 	}
 }
 
-// Stop flushes and closes this Logger's sinks. Safe to call more than once.
-func (l *Logger) Stop() {
+func (l *Logger) stop() {
 	l.stopOnce.Do(func() {
-		if l.tg != nil {
-			l.tg.stop()
+		for _, s := range l.sinks {
+			s.Stop()
 		}
 	})
 }
 
-// Recent reads the live view: matching entries newest first.
-func (l *Logger) Recent(q Query) []Record {
+// Recent reads the ring: matching records, newest first.
+func Recent(q Query) []Record {
+	l := std.Load()
 	if l.ring == nil {
 		return nil
 	}
 	return l.ring.recent(q)
 }
 
-func Recent(q Query) []Record { return std.Load().Recent(q) }
+func Debug(v Log)  { std.Load().emit(slog.LevelDebug, v) }
+func Info(v Log)   { std.Load().emit(slog.LevelInfo, v) }
+func Warn(v Log)   { std.Load().emit(slog.LevelWarn, v) }
+func Error(v Log)  { std.Load().emit(slog.LevelError, v) }
+func Bet(v BetLog) { std.Load().emit(LevelBet, v) }
 
-// Slog exposes the underlying *slog.Logger, for handing to libraries that
-// take one. It writes to stderr only.
-func (l *Logger) Slog() *slog.Logger { return l.slog }
-
-// emit renders one payload to stderr and fans it out to the sinks.
-//
-// runtime.Callers(3, ...) captures the PC of whoever called the public
-// wrapper: frame 1 is emit itself, frame 2 is the wrapper (either the
-// package-level function or the method), frame 3 is the real call site. Both
-// wrapper paths are exactly one frame deep for this reason — a package-level
-// function must call emit directly and never the method, or every log line's
-// source would point back into this file. TestCallerSourceIsCallSite guards
-// this.
+// sends one line to each output that wants it
 func (l *Logger) emit(level slog.Level, p payload) {
 	ctx := context.Background()
-	if !l.slog.Enabled(ctx, level) {
+
+	toStderr := l.slog.Enabled(ctx, level)
+	toRing := l.ring != nil && level != LevelBet && level >= l.cfg.Ring.Level
+	toSink := false
+	for _, s := range l.sinks {
+		if s.Enabled(level) {
+			toSink = true
+			break
+		}
+	}
+	if !toStderr && !toRing && !toSink {
 		return
 	}
 
 	var pcs [1]uintptr
-	runtime.Callers(3, pcs[:])
-	pc := pcs[0]
 
+	// skips emit() and functions above that called it, landing on real call site
+	runtime.Callers(3, pcs[:])
 	now := time.Now()
 
-	r := slog.NewRecord(now, level, p.message(), pc)
-	r.AddAttrs(p.attrs()...)
-	_ = l.slog.Handler().Handle(ctx, r)
-
-	if l.ring == nil && l.tg == nil {
+	if toStderr {
+		r := slog.NewRecord(now, level, p.message(), pcs[0])
+		r.AddAttrs(p.attrs()...)
+		_ = l.slog.Handler().Handle(ctx, r)
+	}
+	if !toRing && !toSink {
 		return
 	}
 
-	e := newEntry(p, level, now, pc, l.application, l.defaultUserID)
-
-	if l.ring != nil {
-		l.ring.enqueue(e)
+	rec := newRecord(p, level, now, pcs[0], l.cfg.Application, l.cfg.DefaultUserID)
+	if toRing {
+		l.ring.add(rec)
 	}
-	if l.tg != nil {
-		l.tg.enqueue(e)
+	for _, s := range l.sinks {
+		if s.Enabled(level) {
+			s.Enqueue(rec)
+		}
 	}
 }
-
-func (l *Logger) Debug(v InfoLog)  { l.emit(slog.LevelDebug, v) }
-func (l *Logger) Info(v InfoLog)   { l.emit(slog.LevelInfo, v) }
-func (l *Logger) Warn(v ErrorLog)  { l.emit(slog.LevelWarn, v) }
-func (l *Logger) Error(v ErrorLog) { l.emit(slog.LevelError, v) }
-func (l *Logger) Bet(v BetLog)     { l.emit(LevelBet, v) }
-
-func Debug(v InfoLog)  { std.Load().emit(slog.LevelDebug, v) }
-func Info(v InfoLog)   { std.Load().emit(slog.LevelInfo, v) }
-func Warn(v ErrorLog)  { std.Load().emit(slog.LevelWarn, v) }
-func Error(v ErrorLog) { std.Load().emit(slog.LevelError, v) }
-func Bet(v BetLog)     { std.Load().emit(LevelBet, v) }

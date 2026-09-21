@@ -2,22 +2,7 @@
 
 package strategy
 
-import (
-	"time"
-
-	triples "pegasus_suite/apps/pegasus/triples"
-)
-
-// forwardProgressState is per race, held by a Triple-S strategy. initial is the
-// message every later displacement is measured against.
-type forwardProgressState struct {
-	initial        triples.RaceMessage
-	hasInitial     bool
-	ignore         bool
-	betfairPlaced  bool
-	betmaticPlaced bool
-	distance       int
-}
+import "time"
 
 type tpdRaceState struct {
 	ignore       bool

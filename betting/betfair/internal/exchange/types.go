@@ -233,3 +233,44 @@ type PlaceInstructionReport struct {
 	AveragePriceMatched float64                    `json:"averagePriceMatched"`
 	SizeMatched         float64                    `json:"sizeMatched"`
 }
+
+// ---- listClearedOrders ----
+
+// BetStatus filters listClearedOrders; one status per request.
+type BetStatus string
+
+const (
+	BetStatusSettled   BetStatus = "SETTLED"
+	BetStatusVoided    BetStatus = "VOIDED"
+	BetStatusLapsed    BetStatus = "LAPSED"
+	BetStatusCancelled BetStatus = "CANCELLED"
+)
+
+// ListClearedOrdersRequest looks bets up by id: at most 1000 per request,
+// from the last 90 days.
+type ListClearedOrdersRequest struct {
+	BetStatus   BetStatus `json:"betStatus"`
+	BetIDs      []string  `json:"betIds,omitempty"`
+	FromRecord  int       `json:"fromRecord,omitempty"`
+	RecordCount int       `json:"recordCount,omitempty"`
+}
+
+type ClearedOrderSummaryReport struct {
+	ClearedOrders []ClearedOrderSummary `json:"clearedOrders"`
+	MoreAvailable bool                  `json:"moreAvailable"`
+}
+
+// ClearedOrderSummary is one settled bet. Profit is before commission, which
+// Betfair only reports rolled up to the market.
+type ClearedOrderSummary struct {
+	BetID        string    `json:"betId"`
+	MarketID     string    `json:"marketId"`
+	SelectionID  int64     `json:"selectionId"`
+	Side         Side      `json:"side"`
+	BetOutcome   string    `json:"betOutcome"` // WON, LOST, PLACE
+	PriceMatched float64   `json:"priceMatched"`
+	SizeSettled  float64   `json:"sizeSettled"`
+	Profit       float64   `json:"profit"`
+	PlacedDate   time.Time `json:"placedDate"`
+	SettledDate  time.Time `json:"settledDate"`
+}

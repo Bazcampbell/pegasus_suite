@@ -29,7 +29,7 @@ func New(eng *engine.Engine, account *engine.Account, s settings.ProcessSettings
 
 // Place runs on its own goroutine per bet, so the decision path is never
 // waiting on a bookmaker.
-func (d *Dispatcher) Place(b core.Bet, scope settings.ScopeSettings, strategyCode string) {
+func (d *Dispatcher) Place(b core.Bet, scope settings.ScopeSettings) {
 	ev := engine.Event{
 		Key:        b.Ref.Key,
 		VenueName:  b.Ref.VenueName,
@@ -53,6 +53,6 @@ func (d *Dispatcher) Place(b core.Bet, scope settings.ScopeSettings, strategyCod
 		Runner:  b.Runner,
 		Unit:    b.Unit,
 		Stake:   scope.Stake,
-		Label:   application + "_" + d.settings.ID + "_" + strategyCode,
+		Label:   application + "_" + d.settings.ID,
 	})
 }

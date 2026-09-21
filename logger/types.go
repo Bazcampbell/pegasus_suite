@@ -1,51 +1,59 @@
-// types.go
+// logger/types.go
 
 package logger
 
-import (
-	"log/slog"
-	"time"
-)
+import "log/slog"
 
-const LevelBet slog.Level = 2
-
-// SystemProcessID marks a log that belongs to no user process.
-const SystemProcessID = "system"
-
-// RaceDetails names a race the same way on every line. Venue is the canonical
-// (Betmatic) track name whichever feed or bookmaker the line came from.
 type RaceDetails struct {
-	Venue        string `json:"venue,omitempty"`
+	Venue        string `json:"venue,omitempty"` // resolved to the Betmatic name (if known)
 	RaceNumber   int    `json:"race,omitempty"`
 	RunnerNumber int    `json:"runner,omitempty"`
 	RunnerName   string `json:"runner_name,omitempty"`
 }
 
-type InfoLog struct {
-	UserID    string
-	Username  string
-	ProcessID string
+// debug, info, warn, error use
+type Log struct {
+	Application string
+	UserID      string
+	Username    string
+	ProcessID   string
 
-	Message string
+	FormattedMessage string
 
-	RaceDetails *RaceDetails
-}
-
-type ErrorLog struct {
-	UserID    string
-	Username  string
-	ProcessID string
-
-	Message  string
-	Error    error
-	Request  any
+	Request  any // marshalled to JSON when the line is recorded
 	Response any
 	Trace    *string
 
 	RaceDetails *RaceDetails
 }
 
+func (l Log) fill(r *Record) {
+	if l.Application != "" {
+		r.Application = l.Application
+	}
+	r.UserID = l.UserID
+	r.Username = l.Username
+	r.ProcessID = l.ProcessID
+	r.Race = l.RaceDetails
+	r.Request = rawJSON(l.Request)
+	r.Response = rawJSON(l.Response)
+}
+
+func (l Log) message() string { return l.FormattedMessage }
+
+func (l Log) attrs() []slog.Attr {
+	a := make([]slog.Attr, 0, 8)
+	a = appendStr(a, "app", l.Application)
+	a = appendStr(a, "user_id", l.UserID)
+	a = appendStr(a, "username", l.Username)
+	a = appendStr(a, "process_id", l.ProcessID)
+	return appendRaceAttrs(a, l.RaceDetails)
+}
+
+// betting only
 type BetLog struct {
+	Application string
+
 	UserID    string
 	Username  string
 	ProcessID string
@@ -56,13 +64,9 @@ type BetLog struct {
 	BetType  string
 	Market   string
 
-	// Ref is the bookmaker's own handle on the bet — the Betmatic label, the
-	// Betfair customerRef — and is what ties this record to one at the provider.
+	// betmatic label or BF customer ref
 	Ref string
 
-	// Requested is what we asked to have on, Accepted is what actually got on,
-	// and they differ on Betmatic, which sizes and fills a notification itself.
-	// Profit is settled P/L in dollars and is only meaningful with a Result.
 	Requested float64
 	Accepted  float64
 	Stake     float64
@@ -78,102 +82,23 @@ type BetLog struct {
 	Response any
 }
 
-// handed to each sink
-type Entry struct {
-	Time        time.Time
-	LogType     string
-	Application string
-	Message     string
-	UserID      string
-	Username    string
-	ProcessID   string
-	RaceDetails *RaceDetails
-	Trace       *string // JSONB
-	Bet         *string // JSONB, populated only for BET-level logs
-	Request     *string // JSONB
-	Response    *string // JSONB
-
-	// Error has no column of its own in the logs table, so it rides in the
-	// trace JSONB under an "error" key. Kept here as a plain string because
-	// the Telegram card renders it as its own block.
-	Error string
-
-	// bet is the original payload, kept so the Telegram formatter doesn't have
-	// to unmarshal the JSONB it was just handed. Never persisted directly.
-	bet *BetLog
-}
-
-// payload is what the five logging functions accept. Implemented by the three
-// consumer types and nothing else — the interface is unexported so the set
-// stays closed.
-type payload interface {
-	message() string
-	attrs() []slog.Attr
-	fill(*Entry)
-}
-
-// --- InfoLog ---
-
-func (l InfoLog) message() string { return l.Message }
-
-func (l InfoLog) attrs() []slog.Attr {
-	a := make([]slog.Attr, 0, 7)
-	a = appendStr(a, "user_id", l.UserID)
-	a = appendStr(a, "username", l.Username)
-	a = appendStr(a, "process_id", l.ProcessID)
-	return appendRaceAttrs(a, l.RaceDetails)
-}
-
-func (l InfoLog) fill(e *Entry) {
-	e.UserID = l.UserID
-	e.Username = l.Username
-	e.ProcessID = l.ProcessID
-	e.RaceDetails = l.RaceDetails
-}
-
-// --- ErrorLog ---
-
-func (l ErrorLog) message() string {
-	if l.Message != "" {
-		return l.Message
+// keeps a copy of the bet for sinks
+func (l BetLog) fill(r *Record) {
+	if l.Application != "" {
+		r.Application = l.Application
 	}
-	if l.Error != nil {
-		return l.Error.Error()
-	}
-	return ""
+	r.UserID = l.UserID
+	r.Username = l.Username
+	r.ProcessID = l.ProcessID
+	r.Race = l.RaceDetails
+
+	bet := l
+	r.Bet = &bet
 }
-
-func (l ErrorLog) attrs() []slog.Attr {
-	a := make([]slog.Attr, 0, 8)
-	a = appendStr(a, "user_id", l.UserID)
-	a = appendStr(a, "username", l.Username)
-	a = appendStr(a, "process_id", l.ProcessID)
-	a = appendRaceAttrs(a, l.RaceDetails)
-	if l.Error != nil {
-		a = append(a, slog.String("error", l.Error.Error()))
-	}
-	return a
-}
-
-func (l ErrorLog) fill(e *Entry) {
-	e.UserID = l.UserID
-	e.Username = l.Username
-	e.ProcessID = l.ProcessID
-	e.RaceDetails = l.RaceDetails
-
-	if l.Error != nil {
-		e.Error = l.Error.Error()
-	}
-	e.Request = toJSONBString(l.Request)
-	e.Response = toJSONBString(l.Response)
-}
-
-// --- BetLog ---
-
-func (l BetLog) message() string { return l.Message }
 
 func (l BetLog) attrs() []slog.Attr {
-	a := make([]slog.Attr, 0, 12)
+	a := make([]slog.Attr, 0, 13)
+	a = appendStr(a, "app", l.Application)
 	a = appendStr(a, "user_id", l.UserID)
 	a = appendStr(a, "username", l.Username)
 	a = appendStr(a, "process_id", l.ProcessID)
@@ -186,50 +111,4 @@ func (l BetLog) attrs() []slog.Attr {
 	return a
 }
 
-func (l BetLog) fill(e *Entry) {
-	e.UserID = l.UserID
-	e.Username = l.Username
-	e.ProcessID = l.ProcessID
-	e.RaceDetails = l.RaceDetails
-
-	bet := l
-	e.bet = &bet
-	e.Bet = betJSONB(l, e.Time)
-
-	e.Request = toJSONBString(l.Request)
-	e.Response = toJSONBString(l.Response)
-}
-
-// --- attr helpers ---
-
-func appendRaceAttrs(a []slog.Attr, r *RaceDetails) []slog.Attr {
-	if r == nil {
-		return a
-	}
-	a = appendStr(a, "venue", r.Venue)
-	a = appendInt(a, "race", r.RaceNumber)
-	a = appendInt(a, "runner", r.RunnerNumber)
-	a = appendStr(a, "runner_name", r.RunnerName)
-	return a
-}
-
-func appendStr(a []slog.Attr, k, v string) []slog.Attr {
-	if v == "" {
-		return a
-	}
-	return append(a, slog.String(k, v))
-}
-
-func appendInt(a []slog.Attr, k string, v int) []slog.Attr {
-	if v == 0 {
-		return a
-	}
-	return append(a, slog.Int(k, v))
-}
-
-func appendFloat(a []slog.Attr, k string, v float64) []slog.Attr {
-	if v == 0 {
-		return a
-	}
-	return append(a, slog.Float64(k, v))
-}
+func (l BetLog) message() string { return l.Message }

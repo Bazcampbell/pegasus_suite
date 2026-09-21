@@ -167,3 +167,7 @@ func (c *Client) ListMarketCatalogue(req ListRequest) ([]MarketCatalogue, error)
 func (c *Client) ListMarketBook(req ListMarketBookRequest) ([]MarketBook, error) {
 	return post[[]MarketBook](c, "listMarketBook", req)
 }
+
+func (c *Client) ListClearedOrders(req ListClearedOrdersRequest) (ClearedOrderSummaryReport, error) {
+	return post[ClearedOrderSummaryReport](c, "listClearedOrders", req)
+}

@@ -22,25 +22,14 @@ type TPDLeader struct {
 	raceState map[string]tpdRaceState
 }
 
-func NewTPDLeader() Strategy {
+func NewTPDLeader() *TPDLeader {
 	return &TPDLeader{raceState: make(map[string]tpdRaceState)}
 }
 
-func (s *TPDLeader) Name() string { return "TPD_Leader" }
+func (s *TPDLeader) Select(p tpd.Progress, ref core.RaceRef, betfairDelay, betmaticDelay int64) (core.Decision, error) {
+	key := ref.Key
 
-func (s *TPDLeader) Code() string { return "tpdl" }
-
-func (s *TPDLeader) Select(u core.Update, betfairDelay, betmaticDelay int64,
-	_ func(core.RaceRef) *core.BetfairRace) (core.Decision, error) {
-
-	p, ok := u.Msg.(tpd.Progress)
-	if !ok {
-		return core.Decision{}, fmt.Errorf("%s: not a tpd progress packet", s.Name())
-	}
-
-	key := u.Ref.Key
-
-	if u.Ref.Status == core.StatusFinished {
+	if ref.Status == core.StatusFinished {
 		delete(s.raceState, key)
 		return core.Decision{}, nil
 	}
@@ -50,7 +39,7 @@ func (s *TPDLeader) Select(u core.Update, betfairDelay, betmaticDelay int64,
 		return core.Decision{}, nil
 	}
 
-	if u.Ref.Status != core.StatusRunning {
+	if ref.Status != core.StatusRunning {
 		s.raceState[key] = state
 		return core.Decision{Tracking: true}, nil
 	}
@@ -80,9 +69,10 @@ func (s *TPDLeader) Select(u core.Update, betfairDelay, betmaticDelay int64,
 	}
 
 	if reason := scopeBlock(p); reason != "" {
-		logger.Warn(logger.ErrorLog{
-			Message:     "tpd leader: not betting, " + reason,
-			RaceDetails: &logger.RaceDetails{Venue: u.Ref.VenueName, RaceNumber: u.Ref.RaceNumber},
+		logger.Warn(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: "tpd leader: not betting, " + reason,
+			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 		})
 		return core.Decision{Tracking: true}, nil
 	}
@@ -92,7 +82,7 @@ func (s *TPDLeader) Select(u core.Update, betfairDelay, betmaticDelay int64,
 		return core.Decision{Tracking: true}, nil
 	}
 
-	unit := s.getUnitSize(u.Ref.Distance)
+	unit := s.getUnitSize(ref.Distance)
 	if unit <= 0 {
 		state.ignore = true
 		s.raceState[key] = state
@@ -102,11 +92,11 @@ func (s *TPDLeader) Select(u core.Update, betfairDelay, betmaticDelay int64,
 	decision := core.Decision{Tracking: true}
 
 	if betmaticReady {
-		decision.Bets = append(decision.Bets, core.Bet{Ref: u.Ref, Side: core.BetmaticWin, Runner: leader, Unit: unit})
+		decision.Bets = append(decision.Bets, core.Bet{Ref: ref, Side: core.BetmaticWin, Runner: leader, Unit: unit})
 		state.betmaticPlaced = true
 	}
 	if betfairReady {
-		decision.Bets = append(decision.Bets, core.Bet{Ref: u.Ref, Side: core.BetfairBack, Runner: leader, Unit: unit})
+		decision.Bets = append(decision.Bets, core.Bet{Ref: ref, Side: core.BetfairBack, Runner: leader, Unit: unit})
 		state.betfairPlaced = true
 	}
 

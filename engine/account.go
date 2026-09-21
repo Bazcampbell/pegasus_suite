@@ -1,9 +1,6 @@
 // engine/account.go
 //
-// Sessions shared by account and refcounted by the processes holding them.
-// This is what the ENGINE service's pool did over HTTP: two processes on the
-// same Betmatic email get one session, and deleting one of them must not log
-// the other out.
+// sharing betting sessions in a pool, avoiding JWT invalidation
 
 package engine
 
@@ -13,7 +10,6 @@ import (
 	"strings"
 
 	"pegasus_suite/betting"
-	"pegasus_suite/betting/betmatic"
 	"pegasus_suite/clients"
 	"pegasus_suite/logger"
 )
@@ -62,6 +58,7 @@ type Placer interface {
 // fields every request carries. Built once at process construction; the hot
 // path reads it and never looks anything up.
 type Account struct {
+	App       string
 	UserID    string
 	ProcessID string
 
@@ -71,9 +68,6 @@ type Account struct {
 	// nil when the process has no account with that provider
 	betmatic Placer
 	betfair  Placer
-
-	// the concrete session, for the results poller
-	bmClient *betmatic.Client
 }
 
 func (a *Account) HasBetmatic() bool { return a != nil && a.betmatic != nil }
@@ -114,10 +108,11 @@ func claim[C betting.Client](ctx context.Context, m map[string]*session[C], key 
 		s = &session[C]{client: client, holders: make(map[clients.ProcessKey]struct{})}
 		m[alias] = s
 
-		logger.Debug(logger.InfoLog{
-			Message:   "opened " + string(client.Provider()) + " session account=" + username,
-			UserID:    key.UserID,
-			ProcessID: key.ProcessID,
+		logger.Debug(logger.Log{
+			Application:      key.App,
+			FormattedMessage: "opened " + string(client.Provider()) + " session account=" + username,
+			UserID:           key.UserID,
+			ProcessID:        key.ProcessID,
 		})
 	}
 
@@ -138,10 +133,11 @@ func release[C betting.Client](m map[string]*session[C], key clients.ProcessKey)
 		delete(m, alias)
 		s.client.Close()
 
-		logger.Debug(logger.InfoLog{
-			Message:   "closed " + string(s.client.Provider()) + " session account=" + alias,
-			UserID:    key.UserID,
-			ProcessID: key.ProcessID,
+		logger.Debug(logger.Log{
+			Application:      key.App,
+			FormattedMessage: "closed " + string(s.client.Provider()) + " session account=" + alias,
+			UserID:           key.UserID,
+			ProcessID:        key.ProcessID,
 		})
 	}
 }

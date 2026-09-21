@@ -26,7 +26,7 @@ import (
 	"pegasus_suite/logger"
 )
 
-const Name = "pegasus"
+const Name = core.AppName
 
 // Feed identifiers. The key is the feed's settings document name, so the
 // Program tab joins FeedStatus to the toggle that edits that document.
@@ -108,10 +108,10 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 		return err
 	}
 
-	logger.Info(logger.InfoLog{Message: fmt.Sprintf("pegasus starting triple_s=%v tpd=%v", tripleSCfg.Enabled, tpdCfg.Enabled)})
+	logger.Info(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("pegasus starting triple_s=%v tpd=%v", tripleSCfg.Enabled, tpdCfg.Enabled)})
 
 	if !tripleSCfg.Enabled && !tpdCfg.Enabled {
-		logger.Warn(logger.ErrorLog{Message: "pegasus starting with every live feed disabled; no race data will arrive and nothing will bet"})
+		logger.Warn(logger.Log{Application: core.AppName, FormattedMessage: "pegasus starting with every live feed disabled; no race data will arrive and nothing will bet"})
 	}
 
 	// The admin exchange account resolves races and polls prices for every
@@ -136,7 +136,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 		client, err := a.setupTriples(ctx, *tripleSCfg, gen)
 		if err != nil {
 			tripleS.Error = err.Error()
-			logger.Error(logger.ErrorLog{Message: fmt.Sprintf("triple-s did not start; nothing will bet off it until a restart error=%v", err)})
+			logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("triple-s did not start; nothing will bet off it until a restart error=%v", err)})
 		}
 		a.triples = client
 	}
@@ -147,7 +147,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 		client, err := a.setupTPD(ctx, *tpdCfg, gen)
 		if err != nil {
 			tpdStatus.Error = err.Error()
-			logger.Error(logger.ErrorLog{Message: fmt.Sprintf("tpd did not start; nothing will bet off it until a restart error=%v", err)})
+			logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("tpd did not start; nothing will bet off it until a restart error=%v", err)})
 		}
 		a.tpd = client
 	}
@@ -204,7 +204,7 @@ func (a *App) setupBetfair(ctx context.Context, h kernel.Host) (*betfair.Client,
 	client.StartTokenRefresh(ctx)
 	client.StartTrackRefresh(ctx, core.ScopeCountries)
 
-	logger.Info(logger.InfoLog{Message: fmt.Sprintf("betfair track refresh started countries=%v", core.ScopeCountries)})
+	logger.Info(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("betfair track refresh started countries=%v", core.ScopeCountries)})
 	return client, nil
 }
 
@@ -222,13 +222,7 @@ func (a *App) setupTriples(ctx context.Context, s settings.TripleS, gen uint64) 
 		Topics:          triples.Topics,
 	}
 
-	return triples.NewClient(ctx, cfg, func(m triples.RaceMessage) {
-		// The source resolves identity; the message itself rides along
-		// untouched for ForwardProgress to read.
-		if ref, ok := m.Ref(); ok {
-			a.Handle(core.Update{Ref: ref, Msg: m})
-		}
-	}, func(e error) {
+	return triples.NewClient(ctx, cfg, a.onTripleS, func(e error) {
 		a.onFeedFatal(gen, feedTripleS, e)
 	})
 }
@@ -238,7 +232,7 @@ func (a *App) setupTPD(ctx context.Context, s settings.TPD, gen uint64) (*tpd.Cl
 		return nil, err
 	}
 
-	return tpd.NewClient(ctx, s.UDPPort, s.LicenceKey, a.Handle, func(e error) {
+	return tpd.NewClient(ctx, s.UDPPort, s.LicenceKey, a.onTPD, func(e error) {
 		a.onFeedFatal(gen, feedTPD, e)
 	})
 }
@@ -284,7 +278,7 @@ func (a *App) onFeedFatal(gen uint64, feed string, err error) {
 		a.feeds.Store(&updated)
 	}
 
-	logger.Error(logger.ErrorLog{Message: fmt.Sprintf("%s permanently lost; it will not bet again until a restart error=%v", feed, err)})
+	logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("%s permanently lost; it will not bet again until a restart error=%v", feed, err)})
 }
 
 // ---- processes ----
@@ -312,10 +306,11 @@ func (a *App) NewProcess(key clients.ProcessKey, doc json.RawMessage, h kernel.H
 	a.procs[key] = p
 	a.mu.Unlock()
 
-	logger.Debug(logger.InfoLog{
-		Message:   fmt.Sprintf("added process scopes=%v betmatic=%v betfair=%v", activeScopes(s), s.BetmaticCredentials.Username, s.BetfairCredentials.Username),
-		UserID:    key.UserID,
-		ProcessID: key.ProcessID,
+	logger.Debug(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("added process scopes=%v betmatic=%v betfair=%v", activeScopes(s), s.BetmaticCredentials.Username, s.BetfairCredentials.Username),
+		UserID:           key.UserID,
+		ProcessID:        key.ProcessID,
 	})
 	return p, nil
 }
@@ -358,8 +353,8 @@ func (a *App) validateScopes(s *settings.ProcessSettings) error {
 			return fmt.Errorf("scope %s: feed %s is disabled", key, provider)
 		}
 
-		if _, err := strategy.For(provider, code); err != nil {
-			return fmt.Errorf("scope %s: %w", key, err)
+		if !strategy.Covers(provider, code) {
+			return fmt.Errorf("scope %s: no strategy for provider %q code %q", key, provider, code)
 		}
 	}
 	return nil
@@ -367,50 +362,56 @@ func (a *App) validateScopes(s *settings.ProcessSettings) error {
 
 // ---- fan-out ----
 
-// Handle is the single feed message handler: every running process whose
-// scope matches gets the update on its inbox.
+// onTripleS and onTPD are the feed handlers: every running process whose scope
+// matches gets the message on its inbox.
 //
 // The venue name is canonicalised here, once per packet, so every log line
-// downstream — process, engine, results — names the track the same way.
-func (a *App) Handle(u core.Update) {
-	if u.Ref.Scope == "" {
+// downstream names the track the same way.
+func (a *App) onTripleS(m triples.RaceMessage) {
+	ref, ok := m.Ref()
+	if !ok || ref.Scope == "" {
 		return
 	}
+	ref.VenueName = core.CanonicalVenue(ref.Provider, ref.Venue, ref.VenueName)
 
-	u.Ref.VenueName = core.CanonicalVenue(u.Ref.Provider, u.Ref.Venue, u.Ref.VenueName)
-
+	wanted := false
 	a.mu.RLock()
-
-	var delivered int
 	for _, p := range a.procs {
-		if !p.Running() || !p.WantsMessage(u) {
-			continue
-		}
-
-		select {
-		case p.Inbox <- u:
-			delivered++
-
-		default:
-			logger.Warn(logger.ErrorLog{
-				Message:     "race inbox full",
-				UserID:      p.Settings.UserID,
-				ProcessID:   p.Settings.ID,
-				RaceDetails: &logger.RaceDetails{Venue: u.Ref.VenueName, RaceNumber: u.Ref.RaceNumber},
-			})
+		if p.OfferTripleS(m, ref) {
+			wanted = true
 		}
 	}
-
 	a.mu.RUnlock()
 
-	if u.Ref.Status == core.StatusFinished {
-		a.unmatched.Delete(u.Ref.Key)
-		a.betfairMissing.Delete(u.Ref.Key)
+	a.afterFanOut(ref, wanted)
+}
+
+func (a *App) onTPD(pr tpd.Progress, ref core.RaceRef) {
+	if ref.Scope == "" {
 		return
 	}
+	ref.VenueName = core.CanonicalVenue(ref.Provider, ref.Venue, ref.VenueName)
 
-	if delivered == 0 {
-		a.noMatch(u.Ref)
+	wanted := false
+	a.mu.RLock()
+	for _, p := range a.procs {
+		if p.OfferTPD(pr, ref) {
+			wanted = true
+		}
+	}
+	a.mu.RUnlock()
+
+	a.afterFanOut(ref, wanted)
+}
+
+func (a *App) afterFanOut(ref core.RaceRef, wanted bool) {
+	if ref.Status == core.StatusFinished {
+		a.unmatched.Delete(ref.Key)
+		a.betfairMissing.Delete(ref.Key)
+		return
+	}
+	if !wanted {
+		a.noMatch(ref)
 	}
 }
 
@@ -422,9 +423,10 @@ func (a *App) noMatch(ref core.RaceRef) {
 		return
 	}
 
-	logger.Debug(logger.InfoLog{
-		Message:     fmt.Sprintf("race reached no process scope=%v provider=%v status=%v", ref.Scope, ref.Provider, ref.Status),
-		RaceDetails: &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+	logger.Debug(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("race reached no process scope=%v provider=%v status=%v", ref.Scope, ref.Provider, ref.Status),
+		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 }
 
@@ -468,9 +470,10 @@ func (a *App) missingBetfairRace(ref core.RaceRef, trackName string) {
 		return
 	}
 
-	logger.Warn(logger.ErrorLog{
-		Message:     fmt.Sprintf("betfair race not loaded; no prices for it scope=%v provider=%v betfair_track=%v", ref.Scope, ref.Provider, trackName),
-		RaceDetails: &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+	logger.Warn(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("betfair race not loaded; no prices for it scope=%v provider=%v betfair_track=%v", ref.Scope, ref.Provider, trackName),
+		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 }
 
@@ -489,4 +492,3 @@ func (a *App) lookupBetfairRace(ref core.RaceRef) *core.BetfairRace {
 }
 
 var _ kernel.App = (*App)(nil)
-var _ kernel.StatusReporter = (*App)(nil)

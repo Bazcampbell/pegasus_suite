@@ -32,11 +32,16 @@ const preOff = `{"K":5,"T":"2026-09-11T23:41:52.6Z","I":"91202609111952","G":"",
 // The worked example from GX-UG-00020, Lingfield Park, mid-race.
 const midRace = `{"K":5,"T":"2016-01-12T13:11:10.9Z","I":"30201601121310","G":"1f","L":100.6,"S":10.61,"C":40.13,"R":46.72,"V":14.8,"P":87.5,"O":["3","5","1","2","6"],"F":["2","1","3","5","6"],"B":[0,0.4,0.4,0.9,1.5],"W":0}`
 
-// harness wires a datagram to updates exactly the way the supervisor does, so
+// harness wires a datagram to the handler exactly the way the client does, so
 // the tests exercise the real composition rather than a stand-in for it.
+type update struct {
+	Ref core.RaceRef
+	Msg Progress
+}
+
 type harness struct {
 	tracker *Tracker
-	got     []core.Update
+	got     []update
 }
 
 func newHarness() *harness {
@@ -48,7 +53,7 @@ func (h *harness) feed(t *testing.T, datagram string) {
 
 	bad := decodeDatagram([]byte(datagram), func(p Progress) {
 		if ref, ok := h.tracker.Ref(p); ok {
-			h.got = append(h.got, core.Update{Ref: ref, Msg: p})
+			h.got = append(h.got, update{Ref: ref, Msg: p})
 		}
 	})
 	if bad != 0 {
@@ -56,13 +61,9 @@ func (h *harness) feed(t *testing.T, datagram string) {
 	}
 }
 
-func progress(t *testing.T, u core.Update) Progress {
+func progress(t *testing.T, u update) Progress {
 	t.Helper()
-	p, ok := u.Msg.(Progress)
-	if !ok {
-		t.Fatalf("update carried %T, want tpd.Progress", u.Msg)
-	}
-	return p
+	return u.Msg
 }
 
 func TestPreOffPacket(t *testing.T) {

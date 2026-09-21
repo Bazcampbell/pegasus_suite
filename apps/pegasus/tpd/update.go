@@ -115,9 +115,10 @@ func (t *Tracker) Ref(p Progress) (core.RaceRef, bool) {
 	t.mu.Unlock()
 
 	if changed {
-		logger.Debug(logger.InfoLog{
-			Message:     fmt.Sprintf("tpd race status=%v sharecode=%v elapsed=%.2fs to_go=%.1f of %.1f order=%v warnings=%v", ref.Status, sharecode, p.RunningTime, p.Progress, ref.Distance, p.Order, p.Warnings),
-			RaceDetails: &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+		logger.Debug(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("tpd race status=%v sharecode=%v elapsed=%.2fs to_go=%.1f of %.1f order=%v warnings=%v", ref.Status, sharecode, p.RunningTime, p.Progress, ref.Distance, p.Order, p.Warnings),
+			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 		})
 	}
 
@@ -161,9 +162,10 @@ func (t *Tracker) trackRaceLocked(sharecode string) *raceState {
 		Distance:   listed.Length,
 	}
 
-	logger.Debug(logger.InfoLog{
-		Message:     fmt.Sprintf("tpd tracking race sharecode=%v course=%v scope=%v distance=%.1f", sharecode, ref.Venue, ref.Scope, ref.Distance),
-		RaceDetails: &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+	logger.Debug(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("tpd tracking race sharecode=%v course=%v scope=%v distance=%.1f", sharecode, ref.Venue, ref.Scope, ref.Distance),
+		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 
 	race := &raceState{ref: ref, touchedAt: time.Now()}
@@ -182,15 +184,17 @@ func (t *Tracker) warnUnresolvedLocked(sharecode string) {
 
 	course, scheduledOff, err := ParseSharecode(sharecode)
 	if err != nil {
-		logger.Warn(logger.ErrorLog{
-			Message: fmt.Sprintf("tpd packet carries an unparseable sharecode; dropping sharecode=%v error=%v", sharecode, err),
+		logger.Warn(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("tpd packet carries an unparseable sharecode; dropping sharecode=%v error=%v", sharecode, err),
 		})
 		return
 	}
 
 	_, known := CourseCodes[course]
-	logger.Warn(logger.ErrorLog{
-		Message: fmt.Sprintf("tpd cannot resolve a race; no bet can be placed for it sharecode=%v course=%v course_known=%v scheduled_off=%v", sharecode, course, known, scheduledOff.Format("2006-01-02 15:04")),
+	logger.Warn(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("tpd cannot resolve a race; no bet can be placed for it sharecode=%v course=%v course_known=%v scheduled_off=%v", sharecode, course, known, scheduledOff.Format("2006-01-02 15:04")),
 	})
 }
 

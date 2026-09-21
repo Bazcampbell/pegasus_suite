@@ -5,6 +5,7 @@ package tpd
 import (
 	"fmt"
 	"net"
+	"pegasus_suite/apps/pegasus/core"
 
 	logger "pegasus_suite/logger"
 )
@@ -25,8 +26,9 @@ func listenUDP(port string) (*net.UDPConn, error) {
 	}
 
 	if err := conn.SetReadBuffer(socketBufferSize); err != nil {
-		logger.Warn(logger.ErrorLog{
-			Message: fmt.Sprintf("tpd could not size the udp receive buffer; bursts may be dropped error=%v", err),
+		logger.Warn(logger.Log{
+			Application:      core.AppName,
+			FormattedMessage: fmt.Sprintf("tpd could not size the udp receive buffer; bursts may be dropped error=%v", err),
 		})
 	}
 

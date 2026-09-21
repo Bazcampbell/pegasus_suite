@@ -41,7 +41,7 @@ func Open(ctx context.Context, raw string) (Bucket, error) {
 	return nil, fmt.Errorf("store: unsupported scheme %q (want file:// or s3://)", u.Scheme)
 }
 
-// fsPath turns a file URL's path into an OS path. file:///C:/data parses to
+// turns a file URL's path into an OS path. file:///C:/data parses to
 // "/C:/data", which Windows cannot open; the drive letter has to lead.
 func fsPath(p string) string {
 	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && p[2] == ':' {

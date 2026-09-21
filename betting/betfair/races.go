@@ -120,9 +120,9 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 	race := bc.raceByKeyLocked(code, country, normTrack, raceNumber)
 	bc.mu.RUnlock()
 	if race == nil {
-		logger.Warn(logger.ErrorLog{
-			Message:     "betfair start runner updates: race not loaded",
-			RaceDetails: &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
+		logger.Warn(logger.Log{
+			FormattedMessage: "betfair start runner updates: race not loaded",
+			RaceDetails:      &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
 		})
 		return
 	}
@@ -136,9 +136,9 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 	bc.runnerCancels[key] = cancel
 	bc.runnerMu.Unlock()
 
-	logger.Debug(logger.InfoLog{
-		Message:     fmt.Sprintf("betfair runner updates started request=raceId: %s", race.ID),
-		RaceDetails: &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
+	logger.Debug(logger.Log{
+		FormattedMessage: fmt.Sprintf("betfair runner updates started request=raceId: %s", race.ID),
+		RaceDetails:      &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
 	})
 
 	go bc.runnerUpdateLoop(ctx, key, code, country, normTrack, raceNumber)
@@ -196,9 +196,9 @@ func (bc *Client) runnerUpdateLoop(ctx context.Context, key string, code RacingC
 			return
 		case <-ticker.C:
 			if closed := bc.updateRunners(code, country, normTrack, raceNumber); closed {
-				logger.Debug(logger.InfoLog{
-					Message:     "betfair runner updates stopping: market closed",
-					RaceDetails: &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
+				logger.Debug(logger.Log{
+					FormattedMessage: "betfair runner updates stopping: market closed",
+					RaceDetails:      &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
 				})
 				return
 			}
@@ -226,9 +226,9 @@ func (bc *Client) updateRunners(code RacingCode, country, normTrack string, race
 
 	books, err := bc.listMarketBook(marketID)
 	if err != nil {
-		logger.Warn(logger.ErrorLog{
-			Message:     fmt.Sprintf("betfair runner update failed market_id=%v error=%v", marketID, err),
-			RaceDetails: &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
+		logger.Warn(logger.Log{
+			FormattedMessage: fmt.Sprintf("betfair runner update failed market_id=%v error=%v", marketID, err),
+			RaceDetails:      &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
 		})
 		return false
 	}

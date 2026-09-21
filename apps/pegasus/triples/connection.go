@@ -5,6 +5,7 @@ package triples
 import (
 	"context"
 	"fmt"
+	"pegasus_suite/apps/pegasus/core"
 	"time"
 
 	logger "pegasus_suite/logger"
@@ -61,8 +62,9 @@ func connectMQTT(
 		return nil, fmt.Errorf("connect: %w", err)
 	}
 
-	logger.Debug(logger.InfoLog{
-		Message: fmt.Sprintf("triple-s mqtt dial successful endpoint=%v region=%v client_id=%v", cfg.Endpoint, cfg.Region, cfg.ClientID),
+	logger.Debug(logger.Log{
+		Application:      core.AppName,
+		FormattedMessage: fmt.Sprintf("triple-s mqtt dial successful endpoint=%v region=%v client_id=%v", cfg.Endpoint, cfg.Region, cfg.ClientID),
 	})
 
 	return client, nil

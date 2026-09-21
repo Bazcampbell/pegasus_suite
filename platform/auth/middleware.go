@@ -43,7 +43,6 @@ func RequireAuth(v *Verifier, next http.Handler) http.Handler {
 	})
 }
 
-// RequireRole wraps RequireAuth, so a role-gated route does not need both.
 func RequireRole(v *Verifier, role string, next http.Handler) http.Handler {
 	return RequireAuth(v, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !ClaimsFromContext(r.Context()).HasRole(role) {
