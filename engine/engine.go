@@ -1,10 +1,4 @@
 // engine/engine.go
-//
-// The betting engine. One per runtime, shared by every process of every
-// application. It owns the bookmaker sessions, turns a strategy's decision plus
-// a scope's money into a provider request, and places it. It has no opinion about which runner or when — that is the
-// strategy's — and never reads settings: everything it needs arrives on the
-// Order, resolved by the process at build time.
 
 package engine
 
@@ -38,48 +32,6 @@ func (s Side) String() string {
 	}
 }
 
-// BetmaticVenue is the canonical name of a track. Every log line names a race
-// by this, whichever feed or bookmaker it came from.
-type BetmaticVenue struct {
-	Name    string
-	IsMetro bool
-}
-
-// Event is a race as the bookmakers name it. The application maps its feed's
-// venue into this; the engine never sees a feed's own names.
-type Event struct {
-	Key        string // the feed's race key: logs now, dedupe later
-	VenueName  string // for logs
-	RaceNumber int
-	Country    string
-	Code       betmatic.RacingCode
-
-	Betmatic *BetmaticVenue // nil when the venue has no betmatic mapping
-	Betfair  *betfair.Race  // nil when unresolved; carries the live book
-}
-
-// Stake is the money side of a scope. The two halves stay separate on purpose:
-// a Betmatic target profit and a Betfair back/lay stake are different things
-// and pretending otherwise makes every field optional.
-type Stake struct {
-	Betmatic BetmaticStake `json:"betmatic"`
-	Betfair  BetfairStake  `json:"betfair"`
-}
-
-type BetmaticStake struct {
-	WinStake float64 `json:"win_stake"`
-	WinMBL   bool    `json:"win_mbl"`
-	MinOdds  float64 `json:"min_odds"`
-	MaxOdds  float64 `json:"max_odds"`
-}
-
-type BetfairStake struct {
-	BackStake float64 `json:"back_stake"`
-	LayStake  float64 `json:"lay_stake"`
-	MinOdds   float64 `json:"min_odds"`
-	MaxOdds   float64 `json:"max_odds"`
-}
-
 // Active reports whether anything is staked. MBL counts even with a zero stake
 // because it bets the bookmaker's maximum instead of targeting a liability.
 func (s Stake) Active() bool { return s.BetsBetmatic() || s.BetsBetfair() }
@@ -87,21 +39,6 @@ func (s Stake) Active() bool { return s.BetsBetmatic() || s.BetsBetfair() }
 func (s Stake) BetsBetmatic() bool { return s.Betmatic.WinMBL || s.Betmatic.WinStake > 0 }
 
 func (s Stake) BetsBetfair() bool { return s.Betfair.BackStake > 0 || s.Betfair.LayStake > 0 }
-
-// Order is one bet to place. Unit comes from the strategy, Stake from the
-// scope, Account from the process; the engine multiplies them out.
-type Order struct {
-	Account *Account
-	Event   Event
-	Side    Side
-	Runner  int
-	Unit    float64
-	Stake   Stake
-
-	// Label is the bookmaker's handle on the bet — the Betmatic label, the
-	// Betfair customer ref — and is what makes a bet attributable.
-	Label string
-}
 
 type Engine struct {
 	// ctx bounds every session's token refresh; cancelled on runtime stop.

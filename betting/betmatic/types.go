@@ -20,6 +20,11 @@ type AuthResponse struct {
 	Token string `json:"token"`
 }
 
+type Venue struct {
+	Name    string
+	IsMetro bool
+}
+
 type Bookmaker struct {
 	ID                 int    `json:"id"`
 	Title              string `json:"title"`

@@ -1,9 +1,4 @@
 // kernel/settings.go
-//
-// user saves their own process settings, an admin can save anyones
-// whole settings document is sent, the kernel decodes into
-// the type its owner names and runs the type's Validate() before anything is
-// written, so the store only ever holds documents that parse and are valid
 
 package kernel
 
@@ -12,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 
 	"pegasus_suite/clients"
 	"pegasus_suite/engine"
@@ -91,46 +85,6 @@ func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage
 
 	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "reloaded process from saved settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
-}
-
-const (
-	StatusActive   = "active"    // loaded and running
-	StatusStopped  = "stopped"   // loaded, not running
-	StatusNotAdded = "not-added" // settings saved, never added (or failed to load)
-	StatusOffline  = "offline"   // the runtime or the application is down
-)
-
-// ListProcesses is every process a user has settings for in an application,
-// sorted by id, with its status in the runtime
-func (k *Kernel) ListProcesses(app, userID string) ([]ProcessInfo, error) {
-	if _, ok := k.byName[app]; !ok {
-		return nil, ErrUnknownApp
-	}
-	ids, err := k.store.ProcessIDs(app, userID)
-	if err != nil {
-		return nil, fmt.Errorf("unable to list processes: %w", err)
-	}
-	slices.Sort(ids)
-
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	up := k.running.Load() && k.up[app]
-	out := make([]ProcessInfo, 0, len(ids))
-	for _, id := range ids {
-		info := ProcessInfo{ID: id, Status: StatusOffline}
-		if up {
-			info.Status = StatusNotAdded
-			if p, ok := k.procs[clients.ProcessKey{App: app, UserID: userID, ProcessID: id}]; ok {
-				info.Status = StatusStopped
-				if p.Running() {
-					info.Status = StatusActive
-				}
-			}
-		}
-		out = append(out, info)
-	}
-	return out, nil
 }
 
 // removes a process + state + settings

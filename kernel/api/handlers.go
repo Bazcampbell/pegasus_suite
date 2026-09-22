@@ -19,25 +19,6 @@ const (
 	maxSettingsBody = 1 << 20
 )
 
-func (s *Server) handleProcessStatus(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.processKey(w, r)
-	if !ok {
-		return
-	}
-
-	running, err := s.kernel.ProcessRunning(key)
-	if err != nil {
-		http.Error(w, err.Error(), errStatus(err))
-		return
-	}
-
-	status := "stopped"
-	if running {
-		status = "active"
-	}
-	util.WriteJSON(w, http.StatusOK, map[string]string{"status": status})
-}
-
 func (s *Server) handleGetBookmakers(w http.ResponseWriter, _ *http.Request) {
 	util.WriteJSON(w, http.StatusOK, betmatic.BookmakerIcons)
 }
@@ -88,82 +69,6 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	util.WriteJSON(w, http.StatusOK, s.kernel.Status())
-}
-
-// PROCESS HANDLERS
-//
-//	GET        /api/{app}/processes[?userId=]                 [{id, status}] for the user
-//	GET|PUT    /api/{app}/settings?processId=[&userId=]       process settings
-//	DELETE     /api/{app}/settings?processId=[&userId=]       delete process, state, settings
-//	GET|PUT    /api/system/settings/{name}                    admin: triples, tpd, betfair, betmatic, …
-func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
-	app, userID, ok := s.appUser(w, r)
-	if !ok {
-		return
-	}
-
-	list, err := s.kernel.ListProcesses(app, userID)
-	if err != nil {
-		http.Error(w, err.Error(), errStatus(err))
-		return
-	}
-	util.WriteJSON(w, http.StatusOK, list)
-}
-
-func (s *Server) handleDeleteProcessSettings(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.processKey(w, r)
-	if !ok {
-		return
-	}
-
-	if err := s.kernel.DeleteProcessSettings(key); err != nil {
-		logger.Error(logger.Log{
-			Application:      key.App,
-			FormattedMessage: fmt.Sprintf("unable to delete process settings error=%v", err),
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
-		})
-		http.Error(w, err.Error(), errStatus(err))
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleGetProcessSettings(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.processKey(w, r)
-	if !ok {
-		return
-	}
-
-	doc, err := s.kernel.GetProcessSettings(key)
-	if err != nil {
-		http.Error(w, err.Error(), errStatus(err))
-		return
-	}
-	writeDoc(w, doc)
-}
-
-func (s *Server) handlePutProcessSettings(w http.ResponseWriter, r *http.Request) {
-	key, ok := s.processKey(w, r)
-	if !ok {
-		return
-	}
-	doc, ok := readDoc(w, r)
-	if !ok {
-		return
-	}
-
-	if err := s.kernel.SaveProcessSettings(key, doc); err != nil {
-		logger.Warn(logger.Log{
-			Application:      key.App,
-			FormattedMessage: fmt.Sprintf("process settings not saved error=%v", err),
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
-		})
-		http.Error(w, err.Error(), errStatus(err))
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleGetAppSettings(w http.ResponseWriter, r *http.Request) {

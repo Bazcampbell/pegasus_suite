@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"pegasus_suite/clients"
 	"pegasus_suite/logger"
+	"slices"
 )
 
 func (k *Kernel) AddProcess(key clients.ProcessKey) error {
@@ -101,6 +102,37 @@ func (k *Kernel) ProcessRunning(key clients.ProcessKey) (bool, error) {
 		return false, err
 	}
 	return p.Running(), nil
+}
+
+func (k *Kernel) ListProcesses(app, userID string) ([]ProcessInfo, error) {
+	if _, ok := k.byName[app]; !ok {
+		return nil, ErrUnknownApp
+	}
+	ids, err := k.store.ProcessIDs(app, userID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to list processes: %w", err)
+	}
+	slices.Sort(ids)
+
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	up := k.running.Load() && k.up[app]
+	out := make([]ProcessInfo, 0, len(ids))
+	for _, id := range ids {
+		info := ProcessInfo{ID: id, Status: StatusOffline}
+		if up {
+			info.Status = StatusNotAdded
+			if p, ok := k.procs[clients.ProcessKey{App: app, UserID: userID, ProcessID: id}]; ok {
+				info.Status = StatusStopped
+				if p.Running() {
+					info.Status = StatusActive
+				}
+			}
+		}
+		out = append(out, info)
+	}
+	return out, nil
 }
 
 // replaces a loaded process with one built from current settings, not started

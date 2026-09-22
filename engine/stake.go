@@ -60,9 +60,7 @@ var betfairTickLadder = [...]struct{ limit, step int }{
 	{5000, 200}, {10000, 500}, {100000, 1000},
 }
 
-// FloorToBetfairTick rounds down onto the ladder, which is the permissive
-// direction for a back limit (the minimum SP you will accept) and the
-// restrictive one for a lay.
+// rounds down into the ladder to nearest valid tick
 func FloorToBetfairTick(price float64) float64 {
 	cents := int(math.Floor(price*100 + 1e-9)) // binary float lift
 	if cents > 100000 {
@@ -85,9 +83,7 @@ func FloorToBetfairTick(price float64) float64 {
 	return float64(cents) / 100
 }
 
-// CeilToBetfairTick rounds up onto the ladder. A lay limit is the maximum SP
-// you will accept, so rounding it down would tighten the order rather than
-// leave it alone — the opposite of what rounding a back limit down does.
+// rounds up to the nearest valid tick
 func CeilToBetfairTick(price float64) float64 {
 	cents := int(math.Ceil(price*100 - 1e-9))
 	if cents < 101 {

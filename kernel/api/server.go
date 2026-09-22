@@ -4,13 +4,10 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"pegasus_suite/clients"
@@ -142,34 +139,6 @@ func (s *Server) appUser(w http.ResponseWriter, r *http.Request) (app, userID st
 	return app, userID, true
 }
 
-// appUser plus the processId. Returns 4xx if anything missing.
-func (s *Server) processKey(w http.ResponseWriter, r *http.Request) (clients.ProcessKey, bool) {
-	app, userID, ok := s.appUser(w, r)
-	if !ok {
-		return clients.ProcessKey{}, false
-	}
-
-	processID := r.URL.Query().Get("processId")
-	if msg := checkID(processID); msg != "" {
-		http.Error(w, "process ID "+msg, http.StatusBadRequest)
-		return clients.ProcessKey{}, false
-	}
-
-	return clients.ProcessKey{App: app, UserID: userID, ProcessID: processID}, true
-}
-
-func checkID(id string) string {
-	switch {
-	case id == "":
-		return "missing"
-	case len(id) > 128:
-		return "too long"
-	case strings.ContainsAny(id, `/\`) || strings.Contains(id, ".."):
-		return "invalid"
-	}
-	return ""
-}
-
 // generic function for a start/stop/restart/delete/add process
 func (s *Server) processOp(done string, op func(clients.ProcessKey) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -201,42 +170,4 @@ func (s *Server) systemOp(done string, op func() error) http.HandlerFunc {
 		}
 		util.WriteJSON(w, http.StatusOK, done)
 	}
-}
-
-// kernel err:http err
-func errStatus(err error) int {
-	switch {
-	case errors.Is(err, kernel.ErrAlreadyRunning), errors.Is(err, kernel.ErrNotRunning),
-		errors.Is(err, kernel.ErrAppDown), errors.Is(err, kernel.ErrExists):
-		return http.StatusConflict
-	case errors.Is(err, kernel.ErrNotFound), errors.Is(err, kernel.ErrUnknownApp), errors.Is(err, kernel.ErrNoSettings),
-		errors.Is(err, kernel.ErrUnknownSettings):
-		return http.StatusNotFound
-	case errors.Is(err, kernel.ErrInvalidSettings):
-		return http.StatusBadRequest
-	case errors.Is(err, kernel.ErrNotReloaded):
-		// saved, but the process did not come back: the caller must see it
-		return http.StatusConflict
-	}
-	return http.StatusInternalServerError
-}
-
-func readDoc(w http.ResponseWriter, r *http.Request) (json.RawMessage, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSettingsBody))
-	if err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			http.Error(w, "settings document too large", http.StatusRequestEntityTooLarge)
-			return nil, false
-		}
-		http.Error(w, "unable to read body", http.StatusBadRequest)
-		return nil, false
-	}
-	return body, true
-}
-
-func writeDoc(w http.ResponseWriter, doc json.RawMessage) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(doc)
 }

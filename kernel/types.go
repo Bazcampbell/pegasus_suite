@@ -13,6 +13,13 @@ import (
 	"time"
 )
 
+const (
+	StatusActive   = "active"    // loaded and running
+	StatusStopped  = "stopped"   // loaded, not running
+	StatusNotAdded = "not-added" // settings saved, never added (or failed to load)
+	StatusOffline  = "offline"   // the runtime or the application is down
+)
+
 var (
 	ErrNotRunning     = errors.New("runtime not running")
 	ErrAlreadyRunning = errors.New("runtime already running")
