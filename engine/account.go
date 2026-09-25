@@ -109,10 +109,10 @@ func claim[C betting.Client](ctx context.Context, m map[string]*session[C], key 
 		m[alias] = s
 
 		logger.Debug(logger.Log{
-			Application:      key.App,
-			FormattedMessage: "opened " + string(client.Provider()) + " session account=" + username,
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
+			App:       key.App,
+			Message:   "opened " + string(client.Provider()) + " session account=" + username,
+			UserID:    key.UserID,
+			ProcessID: key.ProcessID,
 		})
 	}
 
@@ -134,10 +134,10 @@ func release[C betting.Client](m map[string]*session[C], key clients.ProcessKey)
 		s.client.Close()
 
 		logger.Debug(logger.Log{
-			Application:      key.App,
-			FormattedMessage: "closed " + string(s.client.Provider()) + " session account=" + alias,
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
+			App:       key.App,
+			Message:   "closed " + string(s.client.Provider()) + " session account=" + alias,
+			UserID:    key.UserID,
+			ProcessID: key.ProcessID,
 		})
 	}
 }

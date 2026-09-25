@@ -95,11 +95,11 @@ func (p *Process) OfferTripleS(m triples.RaceMessage, ref core.RaceRef) bool {
 
 func (p *Process) inboxFull(ref core.RaceRef) {
 	logger.Warn(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: "race inbox full",
-		UserID:           p.Settings.UserID,
-		ProcessID:        p.Settings.ID,
-		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+		App:       core.AppName,
+		Message:   "race inbox full",
+		UserID:    p.Settings.UserID,
+		ProcessID: p.Settings.ID,
+		Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 	})
 }
 
@@ -116,7 +116,7 @@ func (p *Process) Start() {
 	p.cancel = cancel
 	p.running.Store(true)
 
-	logger.Debug(logger.Log{Application: core.AppName, FormattedMessage: "starting process", ProcessID: p.Settings.ID, UserID: p.Settings.UserID})
+	logger.Debug(logger.Log{App: core.AppName, Message: "starting process", ProcessID: p.Settings.ID, UserID: p.Settings.UserID})
 
 	go p.run(ctx)
 }
@@ -151,10 +151,10 @@ func (p *Process) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			logger.Info(logger.Log{
-				Application:      core.AppName,
-				FormattedMessage: fmt.Sprintf("process stopped reason=%v", ctx.Err()),
-				UserID:           p.Settings.UserID,
-				ProcessID:        p.Settings.ID,
+				App:       core.AppName,
+				Message:   fmt.Sprintf("process stopped reason=%v", ctx.Err()),
+				UserID:    p.Settings.UserID,
+				ProcessID: p.Settings.ID,
 			})
 			return
 
@@ -182,11 +182,11 @@ func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {
 		// stake. Anything logged unconditionally here buries everything else.
 		p.seenRaces[ref.Key] = true
 		logger.Debug(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: fmt.Sprintf("race in scope=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
-			UserID:           p.Settings.UserID,
-			ProcessID:        p.Settings.ID,
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:       core.AppName,
+			Message:   fmt.Sprintf("race in scope=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
+			UserID:    p.Settings.UserID,
+			ProcessID: p.Settings.ID,
+			Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 	}
 	return scope, true
@@ -197,11 +197,11 @@ func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {
 func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, decision core.Decision, err error) {
 	if err != nil {
 		logger.Error(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: fmt.Sprintf("unable to make selections error=%v", err),
-			UserID:           p.Settings.UserID,
-			ProcessID:        p.Settings.ID,
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:       core.AppName,
+			Message:   fmt.Sprintf("unable to make selections error=%v", err),
+			UserID:    p.Settings.UserID,
+			ProcessID: p.Settings.ID,
+			Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 		return
 	}
@@ -216,11 +216,11 @@ func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, decision c
 	}
 
 	logger.Debug(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("selections made bets=%+v", decision.Bets),
-		UserID:           p.Settings.UserID,
-		ProcessID:        p.Settings.ID,
-		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+		App:       core.AppName,
+		Message:   fmt.Sprintf("selections made bets=%+v", decision.Bets),
+		UserID:    p.Settings.UserID,
+		ProcessID: p.Settings.ID,
+		Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 	})
 
 	for _, b := range decision.Bets {

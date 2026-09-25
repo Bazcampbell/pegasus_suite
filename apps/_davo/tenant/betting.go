@@ -75,10 +75,10 @@ func (p *Process) handleBetmaticSelection(message core.DavoRaceMessage) {
 		TargetBot:         p.Settings.BotID,
 	}
 
-	race := &logger.RaceDetails{
+	race := &logger.Race{
 		Venue:        message.Venue,
-		RaceNumber:   message.RaceNumber,
-		RunnerNumber: message.RunnerNumber,
+		Number:   message.RaceNumber,
+		Runner: message.RunnerNumber,
 		RunnerName:   message.RunnerName,
 	}
 

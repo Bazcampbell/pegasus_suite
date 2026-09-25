@@ -40,7 +40,7 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 	logger.Debug(logger.InfoLog{
 		Message: fmt.Sprintf("local resolve: ranked field needle=%v candidates=%v best=%v best_venue=%v best_number=%v best_name_score=%.3f best_total_score=%.3f",
 			runnerName, len(candidates), best.RunnerName, best.Venue, best.RunnerNo, best.nameScore, best.score),
-		RaceDetails: &logger.RaceDetails{RaceNumber: raceNumber},
+		RaceDetails: &logger.Race{Number: raceNumber},
 	})
 
 	if len(candidates) > 1 {
@@ -48,7 +48,7 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 		logger.Debug(logger.InfoLog{
 			Message: fmt.Sprintf("local resolve: runner-up runner=%v number=%v total_score=%.3f margin=%.3f margin_required=%v",
 				r.RunnerName, r.RunnerNo, r.score, best.score-r.score, nameMatchMargin),
-			RaceDetails: &logger.RaceDetails{Venue: r.Venue},
+			RaceDetails: &logger.Race{Venue: r.Venue},
 		})
 	}
 
@@ -79,7 +79,7 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 	logger.Debug(logger.InfoLog{
 		Message: fmt.Sprintf("local resolve: matched runner=%v number=%v score=%.3f",
 			best.RunnerName, best.RunnerNo, best.nameScore),
-		RaceDetails: &logger.RaceDetails{Venue: best.Venue},
+		RaceDetails: &logger.Race{Venue: best.Venue},
 	})
 
 	return EventMatch{

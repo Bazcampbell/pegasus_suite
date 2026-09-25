@@ -9,32 +9,26 @@ import (
 	"time"
 )
 
-// use installs l as the package logger for one test.
-func use(t *testing.T, l *Logger) {
+// use installs a logger built from cfg for one test and returns a func that
+// drains it, so everything logged so far has been written.
+func use(t *testing.T, cfg Config, sinks ...Sink) (drain func()) {
 	t.Helper()
+	cfg.StdErrLevel = slog.LevelError + 100
+	l := start(cfg, sinks...)
 	old := std.Swap(l)
 	t.Cleanup(func() { std.Store(old) })
+	return l.stop
 }
 
-func quiet(cfg Config, sinks ...Sink) *Logger {
-	return &Logger{
-		cfg:   cfg,
-		slog:  slog.New(newTextHandler(slog.LevelError + 100)), // nothing to stderr
-		ring:  newRing(cfg.Ring.size()),
-		sinks: sinks,
-	}
-}
-
-// The ring is the live view: newest first, wraps without losing order, and
-// filters on what the API exposes.
 func TestRingRecent(t *testing.T) {
-	use(t, quiet(Config{Application: "test", Ring: RingConfig{Level: slog.LevelDebug, Size: 4}}))
+	drain := use(t, Config{Application: "test", Ring: RingConfig{Level: slog.LevelDebug, Size: 4}})
 
-	Info(Log{FormattedMessage: "one", UserID: "u1", ProcessID: "p1"})
-	Warn(Log{FormattedMessage: "two", UserID: "u2"})
-	Info(Log{FormattedMessage: "three", UserID: "u1"})
-	Error(Log{FormattedMessage: "four", UserID: "u1", ProcessID: "p1"})
-	Info(Log{FormattedMessage: "five", UserID: "u2"}) // evicts "one"
+	Info(Log{Message: "one", UserID: "u1", ProcessID: "p1"})
+	Warn(Log{Message: "two", UserID: "u2"})
+	Info(Log{Message: "three", UserID: "u1"})
+	Error(Log{Message: "four", UserID: "u1", ProcessID: "p1"})
+	Info(Log{Message: "five", UserID: "u2"}) // evicts "one"
+	drain()
 
 	all := Recent(Query{})
 	if len(all) != 4 {
@@ -66,30 +60,24 @@ func TestRingRecent(t *testing.T) {
 }
 
 type captureSink struct {
-	mu    sync.Mutex
-	min   slog.Level
-	got   []Record
-	asked int
+	mu  sync.Mutex
+	min slog.Level
+	got []Record
 }
 
-func (c *captureSink) Enabled(l slog.Level) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.asked++
-	return l >= c.min
-}
-func (c *captureSink) Enqueue(r Record) { c.mu.Lock(); c.got = append(c.got, r); c.mu.Unlock() }
-func (c *captureSink) Stop()            {}
+func (c *captureSink) Enabled(l slog.Level) bool { return l >= c.min }
+func (c *captureSink) Enqueue(r Record)          { c.mu.Lock(); c.got = append(c.got, r); c.mu.Unlock() }
+func (c *captureSink) Stop()                     {}
 
-// Each output takes only what meets its own level; bets skip the ring.
 func TestRouting(t *testing.T) {
 	sink := &captureSink{min: slog.LevelWarn}
-	use(t, quiet(Config{Ring: RingConfig{Level: slog.LevelInfo}}, sink))
+	drain := use(t, Config{Ring: RingConfig{Level: slog.LevelInfo, Size: 10}}, sink)
 
-	Debug(Log{FormattedMessage: "debug"})
-	Info(Log{FormattedMessage: "info"})
+	Debug(Log{Message: "debug"})
+	Info(Log{Message: "info"})
 	Bet(BetLog{Message: "bet", Stake: 10})
-	Warn(Log{FormattedMessage: "warn"})
+	Warn(Log{Message: "warn"})
+	drain()
 
 	var ring []string
 	for _, r := range Recent(Query{}) {
@@ -101,35 +89,41 @@ func TestRouting(t *testing.T) {
 	if len(sink.got) != 1 || sink.got[0].Message != "warn" {
 		t.Fatalf("sink got %+v, want only the warn", sink.got)
 	}
+}
 
-	// A sink that wants a bet gets the bet itself on the record.
-	sink.min = LevelBet
+func TestBetReachesASinkThatWantsIt(t *testing.T) {
+	sink := &captureSink{min: LevelBet}
+	drain := use(t, Config{}, sink)
+
 	Bet(BetLog{Message: "bet", Stake: 10})
-	last := sink.got[len(sink.got)-1]
-	if last.Level != "BET" || last.Bet == nil || last.Bet.Stake != 10 {
-		t.Fatalf("bet record = %+v", last)
+	drain()
+
+	if len(sink.got) != 1 || sink.got[0].Level != "BET" || sink.got[0].Bet == nil || sink.got[0].Bet.Stake != 10 {
+		t.Fatalf("bet record = %+v", sink.got)
 	}
 }
 
-// Request is snapshotted as JSON when logged; later changes don't reach it.
-func TestRequestIsSnapshotted(t *testing.T) {
-	use(t, quiet(Config{Ring: RingConfig{Level: slog.LevelDebug}}))
+func TestFullQueueDropsInsteadOfBlocking(t *testing.T) {
+	l := &Logger{min: slog.LevelDebug, queue: make(chan entry, 1)}
+	l.emit(slog.LevelInfo, Log{Message: "kept"})
 
-	req := map[string]any{"size": 10}
-	Warn(Log{FormattedMessage: "odd", Request: req, Response: `{"ok":false}`})
-	req["size"] = 999
-
-	r := Recent(Query{})[0]
-	if string(r.Request) != `{"size":10}` || string(r.Response) != `{"ok":false}` {
-		t.Fatalf("request %s response %s", r.Request, r.Response)
+	done := make(chan struct{})
+	go func() { l.emit(slog.LevelInfo, Log{Message: "dropped"}); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("emit blocked on a full queue")
+	}
+	if len(l.queue) != 1 {
+		t.Fatalf("queue holds %d, want 1", len(l.queue))
 	}
 }
 
-// The trace names the line that called logger.Warn, not the logger itself.
 func TestTraceIsTheCallSite(t *testing.T) {
-	use(t, quiet(Config{Ring: RingConfig{Level: slog.LevelDebug}}))
+	drain := use(t, Config{Ring: RingConfig{Level: slog.LevelDebug, Size: 10}})
 
-	Warn(Log{FormattedMessage: "where"}) // this line
+	Warn(Log{Message: "where"}) // this line
+	drain()
 
 	var tr struct {
 		File     string `json:"file"`

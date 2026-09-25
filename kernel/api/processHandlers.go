@@ -33,10 +33,10 @@ func (s *Server) handleDeleteProcessSettings(w http.ResponseWriter, r *http.Requ
 
 	if err := s.kernel.DeleteProcessSettings(key); err != nil {
 		logger.Error(logger.Log{
-			Application:      key.App,
-			FormattedMessage: fmt.Sprintf("unable to delete process settings error=%v", err),
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
+			App:       key.App,
+			Message:   fmt.Sprintf("unable to delete process settings error=%v", err),
+			UserID:    key.UserID,
+			ProcessID: key.ProcessID,
 		})
 		http.Error(w, err.Error(), errStatus(err))
 		return
@@ -70,10 +70,10 @@ func (s *Server) handlePutProcessSettings(w http.ResponseWriter, r *http.Request
 
 	if err := s.kernel.SaveProcessSettings(key, doc); err != nil {
 		logger.Warn(logger.Log{
-			Application:      key.App,
-			FormattedMessage: fmt.Sprintf("process settings not saved error=%v", err),
-			UserID:           key.UserID,
-			ProcessID:        key.ProcessID,
+			App:       key.App,
+			Message:   fmt.Sprintf("process settings not saved error=%v", err),
+			UserID:    key.UserID,
+			ProcessID: key.ProcessID,
 		})
 		http.Error(w, err.Error(), errStatus(err))
 		return

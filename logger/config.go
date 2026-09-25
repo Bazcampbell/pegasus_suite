@@ -10,27 +10,25 @@ import (
 
 const LevelBet slog.Level = 2
 
-// core logger, stderr and in-mem ring
 type Config struct {
-	Application   string // used if log has no app value
+	Application   string // used when a line names no app
 	DefaultUserID string
 
 	StdErrLevel slog.Level
 	Ring        RingConfig
+	QueueSize   int // lines waiting to be written; 0 means defaultQueueSize
 }
 
 type RingConfig struct {
 	Level slog.Level
-	Size  int // how many entries are kept
+	Size  int // 0 disables the ring
 }
 
-const defaultRingSize = 10000
-
-func (r RingConfig) size() int {
-	if r.Size <= 0 {
-		return defaultRingSize
+func (c Config) queueSize() int {
+	if c.QueueSize <= 0 {
+		return defaultQueueSize
 	}
-	return r.Size
+	return c.QueueSize
 }
 
 func ParseLevel(v string) (slog.Level, error) {

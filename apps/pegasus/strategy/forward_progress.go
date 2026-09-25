@@ -74,9 +74,9 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 		s.races[key] = state
 
 		logger.Debug(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: "initial running message received",
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:     core.AppName,
+			Message: "initial running message received",
+			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 		return core.Decision{Tracking: true}, nil
 	}
@@ -138,9 +138,9 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 func openRace(ref core.RaceRef, getBetfairRace func(core.RaceRef) *core.BetfairRace) (forwardProgressState, bool) {
 	if ref.Code != betmatic.THOROUGHBRED && ref.Code != betmatic.HARNESS {
 		logger.Warn(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: fmt.Sprintf("forward progress does not bet racing code %q", ref.Code),
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:     core.AppName,
+			Message: fmt.Sprintf("forward progress does not bet racing code %q", ref.Code),
+			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 		return forwardProgressState{ignore: true}, false
 	}
@@ -148,18 +148,18 @@ func openRace(ref core.RaceRef, getBetfairRace func(core.RaceRef) *core.BetfairR
 	bfRace := getBetfairRace(ref)
 	if bfRace == nil {
 		logger.Error(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: "unable to resolve betfair race",
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:     core.AppName,
+			Message: "unable to resolve betfair race",
+			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 		return forwardProgressState{ignore: true}, false
 	}
 
 	if bfRace.Distance < 1 {
 		logger.Warn(logger.Log{
-			Application:      core.AppName,
-			FormattedMessage: fmt.Sprintf("race distance is 0, unable to get race distance: %s", bfRace.Name),
-			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+			App:     core.AppName,
+			Message: fmt.Sprintf("race distance is 0, unable to get race distance: %s", bfRace.Name),
+			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 		})
 		return forwardProgressState{ignore: true}, false
 	}

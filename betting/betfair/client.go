@@ -66,8 +66,8 @@ func (bc *Client) Close() {
 
 	if err := bc.api.Logout(); err != nil {
 		logger.Warn(logger.Log{
-			FormattedMessage: fmt.Sprintf("betfair logout failed error=%v", err),
-			Request:          bc.api.Username,
+			Message: fmt.Sprintf("betfair logout failed error=%v", err),
+			Request: bc.api.Username,
 		})
 	}
 }
@@ -98,8 +98,8 @@ func (bc *Client) StartTokenRefresh(parent context.Context) {
 func (bc *Client) tickRefresh() {
 	if err := bc.RefreshToken(); err != nil {
 		logger.Warn(logger.Log{
-			FormattedMessage: fmt.Sprintf("betfair token refresh failed error=%v", err),
-			Request:          bc.api.Username,
+			Message: fmt.Sprintf("betfair token refresh failed error=%v", err),
+			Request: bc.api.Username,
 		})
 		return
 	}

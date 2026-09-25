@@ -46,7 +46,7 @@ func SniffRaceNumber(text string) int {
 	}
 	logger.Debug(logger.InfoLog{
 		Message:     fmt.Sprintf("race number sniff: hit matched=%v", m[0]),
-		RaceDetails: &logger.RaceDetails{RaceNumber: n},
+		RaceDetails: &logger.Race{Number: n},
 	})
 	return n
 }

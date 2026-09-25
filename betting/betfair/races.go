@@ -81,8 +81,8 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 	bc.mu.RUnlock()
 	if race == nil {
 		logger.Warn(logger.Log{
-			FormattedMessage: "betfair start runner updates: race not loaded",
-			RaceDetails:      &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
+			Message: "betfair start runner updates: race not loaded",
+			Race:    &logger.Race{Venue: trackName, Number: raceNumber},
 		})
 		return
 	}
@@ -97,8 +97,8 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 	bc.runnerMu.Unlock()
 
 	logger.Debug(logger.Log{
-		FormattedMessage: fmt.Sprintf("betfair runner updates started raceId: %s", race.ID),
-		RaceDetails:      &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
+		Message: fmt.Sprintf("betfair runner updates started raceId: %s", race.ID),
+		Race:    &logger.Race{Venue: trackName, Number: raceNumber},
 	})
 
 	go bc.runnerUpdateLoop(ctx, key, code, country, normTrack, raceNumber)
@@ -153,8 +153,8 @@ func (bc *Client) runnerUpdateLoop(ctx context.Context, key string, code RacingC
 		case <-ticker.C:
 			if closed := bc.updateRunners(code, country, normTrack, raceNumber); closed {
 				logger.Debug(logger.Log{
-					FormattedMessage: "betfair runner updates stopping: market closed",
-					RaceDetails:      &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
+					Message: "betfair runner updates stopping: market closed",
+					Race:    &logger.Race{Venue: normTrack, Number: raceNumber},
 				})
 				return
 			}
@@ -181,8 +181,8 @@ func (bc *Client) updateRunners(code RacingCode, country, normTrack string, race
 	books, err := bc.listMarketBook(marketID)
 	if err != nil {
 		logger.Warn(logger.Log{
-			FormattedMessage: fmt.Sprintf("betfair runner update failed market_id=%v error=%v", marketID, err),
-			RaceDetails:      &logger.RaceDetails{Venue: normTrack, RaceNumber: raceNumber},
+			Message: fmt.Sprintf("betfair runner update failed market_id=%v error=%v", marketID, err),
+			Race:    &logger.Race{Venue: normTrack, Number: raceNumber},
 		})
 		return false
 	}

@@ -59,9 +59,9 @@ func (bc *Client) CreateNotification(req NotificationRequest) (notificationId st
 	var notiResp NotificationResponse
 	if err = json.Unmarshal(resp.Body, &notiResp); err != nil {
 		logger.Debug(logger.Log{
-			FormattedMessage: "successfully sent Betmatic notification but no ID",
-			Request:          req,
-			Response:         resp.Body,
+			Message:  "successfully sent Betmatic notification but no ID",
+			Request:  req,
+			Response: resp.Body,
 		})
 		return "", nil
 	}

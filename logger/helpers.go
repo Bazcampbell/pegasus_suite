@@ -1,4 +1,4 @@
-// log.go
+// helpers.go
 
 package logger
 
@@ -12,13 +12,13 @@ type payload interface {
 }
 
 // slog/stderr attrs
-func appendRaceAttrs(a []slog.Attr, r *RaceDetails) []slog.Attr {
+func appendRaceAttrs(a []slog.Attr, r *Race) []slog.Attr {
 	if r == nil {
 		return a
 	}
 	a = appendStr(a, "venue", r.Venue)
-	a = appendInt(a, "race", r.RaceNumber)
-	a = appendInt(a, "runner", r.RunnerNumber)
+	a = appendInt(a, "race", r.Number)
+	a = appendInt(a, "runner", r.Runner)
 	return appendStr(a, "runner_name", r.RunnerName)
 }
 

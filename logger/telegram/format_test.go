@@ -7,13 +7,13 @@ import (
 	"pegasus_suite/logger"
 )
 
-var race = &logger.RaceDetails{Venue: "ROCKHAMPTON", RaceNumber: 7, RunnerNumber: 1, RunnerName: "Brank Daddy"}
+var race = &logger.Race{Venue: "ROCKHAMPTON", Number: 7, Runner: 1, RunnerName: "Brank Daddy"}
 
 func TestLogCardIsTheSameForEveryLevel(t *testing.T) {
 	for _, level := range []string{"DEBUG", "INFO", "WARN", "ERROR"} {
 		card := formatTelegram(logger.Record{
 			Level: level, Application: "pegasus", Message: "unable to resolve betfair race",
-			Username: "punter", ProcessID: "bot-a", Race: race,
+			UserID: "punter", ProcessID: "bot-a", Race: race,
 		})
 		for _, line := range []string{
 			"<b>" + level + "</b> · pegasus",
@@ -37,21 +37,19 @@ func TestLogCardWithoutARace(t *testing.T) {
 
 func TestBetCardShowsTheMoney(t *testing.T) {
 	card := formatTelegram(logger.Record{
-		Level: "BET", Application: "pegasus", Message: "betmatic bet resulted ROCKHAMPTON R7 runner 1",
-		Username: "punter", ProcessID: "bot-a", Race: race,
+		Level: "BET", Application: "pegasus", Message: "betfair back accepted",
+		UserID: "punter", ProcessID: "bot-a", Race: race,
 		Bet: &logger.BetLog{
-			Endpoint: "BETMATIC", BetType: "Fixed Profit", Market: "Fixed Win", Ref: "pegasus_a1b2c3",
-			Requested: 10, Accepted: 8, Odds: 4.6, TargetLia: 240, Profit: 28.8, Result: "WIN",
+			Provider: "betfair", BetType: "BACK", BetID: "ROCKHAMPTON:R7:1:20260925",
+			Stake: 10, Odds: 4.6, Target: 240,
 		},
 	})
 	for _, line := range []string{
 		"🟢 <b>BET</b> · pegasus",
-		"🏇 <b>ROCKHAMPTON R7</b> · Fixed Win",
+		"🏇 <b>ROCKHAMPTON R7</b>",
 		"🐎 Runner <b>#1</b> Brank Daddy",
-		"💵 Requested $10.00 · Accepted $8.00 @ 4.60",
-		"🎯 Target $240.00",
-		"🏁 <b>WIN</b> · 💰 +$28.80",
-		"🔌 BETMATIC · Fixed Profit · pegasus_a1b2c3",
+		"💵 Stake $10.00 @ 4.60 · 🎯 Target $240.00",
+		"🔌 betfair · BACK · ROCKHAMPTON:R7:1:20260925",
 		"👤 punter · ⚙️ bot-a",
 	} {
 		if !strings.Contains(card, line) {
@@ -61,7 +59,7 @@ func TestBetCardShowsTheMoney(t *testing.T) {
 }
 
 func TestCardsEscapeHTML(t *testing.T) {
-	card := formatTelegram(logger.Record{Level: "ERROR", Message: "bad <price> & stuff", Race: &logger.RaceDetails{Venue: "A&B"}})
+	card := formatTelegram(logger.Record{Level: "ERROR", Message: "bad <price> & stuff", Race: &logger.Race{Venue: "A&B"}})
 	if !strings.Contains(card, "bad &lt;price&gt; &amp; stuff") || !strings.Contains(card, "A&amp;B") {
 		t.Fatalf("not escaped:\n%s", card)
 	}

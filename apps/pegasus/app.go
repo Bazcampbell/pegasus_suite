@@ -89,7 +89,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	}
 
 	if !tripleSCfg.Enabled {
-		logger.Warn(logger.Log{Application: core.AppName, FormattedMessage: "pegasus starting with triple-s disabled; nothing will bet"})
+		logger.Warn(logger.Log{App: core.AppName, Message: "pegasus starting with triple-s disabled; nothing will bet"})
 	}
 
 	// The admin exchange account resolves races and polls prices for every
@@ -109,7 +109,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 		client, err := a.setupTriples(ctx, *tripleSCfg, gen)
 		if err != nil {
 			tripleS.Error = err.Error()
-			logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("triple-s did not start; nothing will bet off it until a restart error=%v", err)})
+			logger.Error(logger.Log{App: core.AppName, Message: fmt.Sprintf("triple-s did not start; nothing will bet off it until a restart error=%v", err)})
 		}
 		a.triples = client
 	}
@@ -162,7 +162,7 @@ func (a *App) setupBetfair(ctx context.Context, h kernel.Host) (*betfair.Client,
 	client.StartTokenRefresh(ctx)
 	client.StartTrackRefresh(ctx, core.ScopeCountries)
 
-	logger.Info(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("betfair track refresh started countries=%v", core.ScopeCountries)})
+	logger.Info(logger.Log{App: core.AppName, Message: fmt.Sprintf("betfair track refresh started countries=%v", core.ScopeCountries)})
 	return client, nil
 }
 
@@ -215,7 +215,7 @@ func (a *App) onFeedFatal(gen uint64, feed string, err error) {
 		a.feeds.Store(&updated)
 	}
 
-	logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("%s permanently lost; it will not bet again until a restart error=%v", feed, err)})
+	logger.Error(logger.Log{App: core.AppName, Message: fmt.Sprintf("%s permanently lost; it will not bet again until a restart error=%v", feed, err)})
 }
 
 // ---- processes ----
@@ -244,10 +244,10 @@ func (a *App) NewProcess(key clients.ProcessKey, doc json.RawMessage, h kernel.H
 	a.mu.Unlock()
 
 	logger.Debug(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("added process scopes=%v betmatic=%v betfair=%v", activeScopes(s), s.BetmaticCredentials.Username, s.BetfairCredentials.Username),
-		UserID:           key.UserID,
-		ProcessID:        key.ProcessID,
+		App:       core.AppName,
+		Message:   fmt.Sprintf("added process scopes=%v betmatic=%v betfair=%v", activeScopes(s), s.BetmaticCredentials.Username, s.BetfairCredentials.Username),
+		UserID:    key.UserID,
+		ProcessID: key.ProcessID,
 	})
 	return p, nil
 }
@@ -328,9 +328,9 @@ func (a *App) noMatch(ref core.RaceRef) {
 	}
 
 	logger.Debug(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("race reached no process scope=%v status=%v", ref.Scope, ref.Status),
-		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+		App:     core.AppName,
+		Message: fmt.Sprintf("race reached no process scope=%v status=%v", ref.Scope, ref.Status),
+		Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 	})
 }
 
@@ -375,9 +375,9 @@ func (a *App) missingBetfairRace(ref core.RaceRef, trackName string) {
 	}
 
 	logger.Warn(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("betfair race not loaded; no prices for it scope=%v betfair_track=%v", ref.Scope, trackName),
-		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
+		App:     core.AppName,
+		Message: fmt.Sprintf("betfair race not loaded; no prices for it scope=%v betfair_track=%v", ref.Scope, trackName),
+		Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
 	})
 }
 

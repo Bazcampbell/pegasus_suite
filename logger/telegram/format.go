@@ -42,7 +42,7 @@ func formatLog(e logger.Record) string {
 	writeMessage(&sb, e.Message)
 
 	var lines []string
-	if race := raceLine(e.Race, "", true); race != "" {
+	if race := raceLine(e.Race, true); race != "" {
 		lines = append(lines, race)
 	}
 	if who := whoLine(e); who != "" {
@@ -57,15 +57,13 @@ func formatLog(e logger.Record) string {
 //
 //	🟢 BET · pegasus
 //
-//	betmatic bet resulted ROCKHAMPTON R7 runner 1
+//	betfair back accepted
 //
-//	🏇 ROCKHAMPTON R7 · Fixed Win
+//	🏇 ROCKHAMPTON R7
 //	🐎 Runner #1 Brank Daddy
-//	💵 Requested $10.00 · Accepted $8.00 @ 4.60
-//	🎯 Target $240.00
-//	🏁 WIN · 💰 +$28.80
-//	🔌 BETMATIC · Fixed Profit · pegasus_a1b2c3
-//	👤 punter · ⚙️ bot-a
+//	💵 Stake $10.00 @ 4.60 · 🎯 Target $240.00
+//	🔌 betfair · BACK · ROCKHAMPTON:R7:1:20260925
+//	👤 user-1 · ⚙️ bot-a
 func formatBet(e logger.Record) string {
 	b := e.Bet
 
@@ -74,7 +72,7 @@ func formatBet(e logger.Record) string {
 	writeMessage(&sb, e.Message)
 
 	var lines []string
-	if race := raceLine(e.Race, b.Market, false); race != "" {
+	if race := raceLine(e.Race, false); race != "" {
 		lines = append(lines, race)
 	}
 	if runner := runnerLine(e.Race); runner != "" {
@@ -83,41 +81,21 @@ func formatBet(e logger.Record) string {
 
 	var money []string
 	if b.Stake != 0 {
-		money = append(money, "Stake "+formatMoney(b.Stake))
+		stake := "💵 Stake " + formatMoney(b.Stake)
+		if b.Odds != 0 {
+			stake += fmt.Sprintf(" @ %.2f", b.Odds)
+		}
+		money = append(money, stake)
 	}
-	if b.Requested != 0 {
-		money = append(money, "Requested "+formatMoney(b.Requested))
-	}
-	if b.Accepted != 0 {
-		money = append(money, "Accepted "+formatMoney(b.Accepted))
+	if b.Target != 0 {
+		money = append(money, "🎯 Target "+formatMoney(b.Target))
 	}
 	if len(money) > 0 {
-		line := "💵 " + strings.Join(money, " · ")
-		if b.Odds != 0 {
-			line += fmt.Sprintf(" @ %.2f", b.Odds)
-		}
-		lines = append(lines, line)
-	}
-	if b.TargetLia != 0 {
-		lines = append(lines, "🎯 Target "+formatMoney(b.TargetLia))
-	}
-
-	if b.Result != "" || b.Profit != 0 {
-		var outcome []string
-		if b.Result != "" {
-			outcome = append(outcome, "<b>"+escapeText(b.Result)+"</b>")
-		}
-		if b.Profit != 0 || b.Result != "" {
-			outcome = append(outcome, "💰 "+formatSignedMoney(b.Profit))
-		}
-		lines = append(lines, "🏁 "+strings.Join(outcome, " · "))
-	}
-	if b.RaceState != "" {
-		lines = append(lines, "📍 "+escapeText(b.RaceState))
+		lines = append(lines, strings.Join(money, " · "))
 	}
 
 	var source []string
-	for _, s := range []string{b.Endpoint, b.BetType, b.Ref} {
+	for _, s := range []string{b.Provider, b.BetType, b.BetID} {
 		if s != "" {
 			source = append(source, escapeText(s))
 		}
@@ -164,20 +142,16 @@ func writeLines(sb *strings.Builder, lines []string) {
 	}
 }
 
-// raceLine is "🏇 VENUE R7", then the market if given. withRunner folds the
-// runner onto the same line, for the compact log card.
-func raceLine(r *logger.RaceDetails, market string, withRunner bool) string {
+// raceLine returns "🏇 VENUE R7", with the runner folded on when withRunner is set.
+func raceLine(r *logger.Race, withRunner bool) string {
 	if r == nil || r.Venue == "" {
 		return ""
 	}
 	line := "🏇 <b>" + escapeText(r.Venue)
-	if r.RaceNumber != 0 {
-		line += fmt.Sprintf(" R%d", r.RaceNumber)
+	if r.Number != 0 {
+		line += fmt.Sprintf(" R%d", r.Number)
 	}
 	line += "</b>"
-	if market != "" {
-		line += " · " + escapeText(market)
-	}
 	if withRunner {
 		if runner := runnerText(r); runner != "" {
 			line += " · 🐎 " + runner
@@ -186,20 +160,20 @@ func raceLine(r *logger.RaceDetails, market string, withRunner bool) string {
 	return line
 }
 
-func runnerLine(r *logger.RaceDetails) string {
+func runnerLine(r *logger.Race) string {
 	if runner := runnerText(r); runner != "" {
 		return "🐎 Runner " + runner
 	}
 	return ""
 }
 
-func runnerText(r *logger.RaceDetails) string {
-	if r == nil || (r.RunnerNumber == 0 && r.RunnerName == "") {
+func runnerText(r *logger.Race) string {
+	if r == nil || (r.Runner == 0 && r.RunnerName == "") {
 		return ""
 	}
 	var parts []string
-	if r.RunnerNumber != 0 {
-		parts = append(parts, fmt.Sprintf("<b>#%d</b>", r.RunnerNumber))
+	if r.Runner != 0 {
+		parts = append(parts, fmt.Sprintf("<b>#%d</b>", r.Runner))
 	}
 	if r.RunnerName != "" {
 		parts = append(parts, escapeText(r.RunnerName))
@@ -207,11 +181,11 @@ func runnerText(r *logger.RaceDetails) string {
 	return strings.Join(parts, " ")
 }
 
-// whoLine is "👤 username · ⚙️ process", whichever are set.
+// whoLine returns "👤 user · ⚙️ process", whichever are set.
 func whoLine(e logger.Record) string {
 	var parts []string
-	if e.Username != "" {
-		parts = append(parts, "👤 "+escapeText(e.Username))
+	if e.UserID != "" {
+		parts = append(parts, "👤 "+escapeText(e.UserID))
 	}
 	if e.ProcessID != "" {
 		parts = append(parts, "⚙️ "+escapeText(e.ProcessID))
@@ -241,11 +215,4 @@ func formatMoney(v float64) string {
 		return fmt.Sprintf("-$%.2f", -v)
 	}
 	return fmt.Sprintf("$%.2f", v)
-}
-
-func formatSignedMoney(v float64) string {
-	if v > 0 {
-		return "+" + formatMoney(v)
-	}
-	return formatMoney(v)
 }

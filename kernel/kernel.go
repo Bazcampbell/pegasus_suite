@@ -127,8 +127,8 @@ func (k *Kernel) startLocked() error {
 		if err := app.Start(ctx, h); err != nil {
 			errs[app.Name()] = err.Error()
 			logger.Error(logger.Log{
-				Application:      app.Name(),
-				FormattedMessage: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
+				App:     app.Name(),
+				Message: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
 			})
 			continue
 		}
@@ -148,7 +148,7 @@ func (k *Kernel) startLocked() error {
 
 	k.restoreProcessesLocked()
 
-	logger.Info(logger.Log{FormattedMessage: fmt.Sprintf("runtime started apps=%v", k.Apps())})
+	logger.Info(logger.Log{Message: fmt.Sprintf("runtime started apps=%v", k.Apps())})
 	return nil
 }
 
@@ -177,14 +177,14 @@ func (k *Kernel) stopLocked() error {
 	k.cancel()
 	k.cancel = nil
 
-	logger.Info(logger.Log{FormattedMessage: "runtime stopped"})
+	logger.Info(logger.Log{Message: "runtime stopped"})
 	return nil
 }
 
 func (k *Kernel) fail(err error) error {
 	msg := err.Error()
 	k.lastErr.Store(&msg)
-	logger.Error(logger.Log{FormattedMessage: fmt.Sprintf("runtime start failed error=%v", err)})
+	logger.Error(logger.Log{Message: fmt.Sprintf("runtime start failed error=%v", err)})
 	return err
 }
 
@@ -204,6 +204,6 @@ func (k *Kernel) getAppByProcessKey(key clients.ProcessKey) (App, error) {
 
 func (k *Kernel) setState(key clients.ProcessKey, state clients.State) {
 	if err := k.store.SetState(key, state); err != nil {
-		logger.Warn(logger.Log{Application: key.App, FormattedMessage: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
+		logger.Warn(logger.Log{App: key.App, Message: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
 	}
 }

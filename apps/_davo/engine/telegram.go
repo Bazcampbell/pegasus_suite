@@ -122,10 +122,10 @@ func (e *Engine) onScrape(ctx context.Context, msg telegram.Message) {
 
 	logger.Debug(logger.InfoLog{
 		Message: fmt.Sprintf("fanning out selection units=%v market=%v rated_odds=%v name_match=%.0f%%", msgOut.UnitSize, msgOut.Market, msgOut.RatedOdds, match.Score*100),
-		RaceDetails: &logger.RaceDetails{
+		RaceDetails: &logger.Race{
 			Venue:        msgOut.Venue,
-			RaceNumber:   msgOut.RaceNumber,
-			RunnerNumber: msgOut.RunnerNumber,
+			Number:   msgOut.RaceNumber,
+			Runner: msgOut.RunnerNumber,
 			RunnerName:   msgOut.RunnerName,
 		},
 	})
@@ -154,7 +154,7 @@ func (e *Engine) interpret(ctx context.Context, text string) (betting.DavoBet, b
 		if err == nil {
 			logger.Debug(logger.InfoLog{
 				Message:     fmt.Sprintf("interpret: resolved locally, no model call runner=%v", match.RunnerName),
-				RaceDetails: &logger.RaceDetails{Venue: match.Venue},
+				RaceDetails: &logger.Race{Venue: match.Venue},
 			})
 			return bet, match, nil
 		}
@@ -205,7 +205,7 @@ func (e *Engine) extract(ctx context.Context, text string, raceNumber int) (bett
 	if raceNumber > 0 {
 		logger.Debug(logger.InfoLog{
 			Message:     "extract: building field for race",
-			RaceDetails: &logger.RaceDetails{RaceNumber: raceNumber},
+			RaceDetails: &logger.Race{Number: raceNumber},
 		})
 		candidates, err = betting.RaceCandidates(eventMap, raceNumber)
 		if err != nil {
@@ -213,7 +213,7 @@ func (e *Engine) extract(ctx context.Context, text string, raceNumber int) (bett
 			// book rather than giving up on the message.
 			logger.Debug(logger.InfoLog{
 				Message:     fmt.Sprintf("no field for race number, sending whole book error=%v", err),
-				RaceDetails: &logger.RaceDetails{RaceNumber: raceNumber},
+				RaceDetails: &logger.Race{Number: raceNumber},
 			})
 			candidates, err = betting.AllCandidates(eventMap)
 		}
@@ -252,7 +252,7 @@ func (e *Engine) extract(ctx context.Context, text string, raceNumber int) (bett
 
 	logger.Debug(logger.InfoLog{
 		Message:     fmt.Sprintf("escalating message to model candidates=%v text=%v", len(sent), text),
-		RaceDetails: &logger.RaceDetails{RaceNumber: raceNumber},
+		RaceDetails: &logger.Race{Number: raceNumber},
 	})
 
 	extractCtx, cancel := context.WithTimeout(ctx, extractTimeout)

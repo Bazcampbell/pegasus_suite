@@ -110,9 +110,9 @@ func (e *Engine) processbetMessage(m core.DavoRaceMessage) {
 					UserID:    process.Settings.UserID,
 					ProcessID: process.Settings.ID,
 					Request:   m,
-					RaceDetails: &logger.RaceDetails{
+					RaceDetails: &logger.Race{
 						Venue:      m.Venue,
-						RaceNumber: m.RaceNumber,
+						Number: m.RaceNumber,
 					},
 				})
 			}
