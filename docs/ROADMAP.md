@@ -270,6 +270,14 @@ Sessions, dedupe, prices, IDs, the ledger, logging and PnL all come for free. DA
   - Betmatic: most users share one account, so the report lists every notification and splits them by bot ID.
   - One report per user, sent to the bets Telegram channel.
 - **Deploy:** a single EC2 instance. The runtime starts by itself on boot if it was running before.
+- **Blocked duplicates** get a DEBUG log only.
+- **The engine reads Betfair prices** from the stream cache using the order's market and selection IDs. Apps never read prices for placement.
+- **Bet ID** = track (Betmatic name) + race no + runner no + race date. There is no time in it. The bet record carries the process ID, the time placed and the rest.
+- **Claims:** Betfair-backed claims clear on `CLOSED`. Claims with no market (DAVO) expire after 96 h. Restarts wiping claims is accepted.
+- **Accounts:** Betmatic bot IDs belong to users (a user may have several). Each user has their own Betfair account.
+- **Betmatic label** = the application name only (`PEGASUS`, `DAVO`).
+- **Bets channel** moves from an env var into admin settings.
+- **TPD betting is removed** (no UK/US). AU (Triple-S) only for now.
 
 ## 13. Superseded open questions
 
