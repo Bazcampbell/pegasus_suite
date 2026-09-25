@@ -55,6 +55,16 @@ func (k *Kernel) Apps() []string {
 	return names
 }
 
+// Engine returns the running runtime's engine, or nil while the runtime is stopped.
+func (k *Kernel) Engine() *engine.Engine {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.running.Load() {
+		return nil
+	}
+	return k.eng
+}
+
 func (k *Kernel) HasApp(name string) bool {
 	_, ok := k.byName[name]
 	return ok

@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"pegasus_suite/betting/betfair"
@@ -24,13 +25,15 @@ type Engine struct {
 	// bounds every background loop; cancelled on runtime stop
 	ctx context.Context
 
+	// guards the session pools; never taken on the bet path
 	mu       sync.Mutex
 	betmatic map[string]*session[*betmatic.Client]
 	betfair  map[string]*session[*betfair.Client]
-	users    map[string]*claims
+
+	users sync.Map // user ID → *claims
 
 	// catalogue and live prices; nil until StartBetfair succeeds
-	admin *betfair.Client
+	admin atomic.Pointer[betfair.Client]
 }
 
 func New(ctx context.Context) *Engine {
@@ -38,7 +41,6 @@ func New(ctx context.Context) *Engine {
 		ctx:      ctx,
 		betmatic: make(map[string]*session[*betmatic.Client]),
 		betfair:  make(map[string]*session[*betfair.Client]),
-		users:    make(map[string]*claims),
 	}
 	go e.expireClaims()
 	return e
@@ -57,54 +59,39 @@ func (e *Engine) StartBetfair(c BetfairCredentials) error {
 	admin.StartTrackRefresh(e.ctx, betfairCountries)
 	admin.StartRunnerUpdates(e.ctx, e.closeMarket)
 
-	e.mu.Lock()
-	e.admin = admin
-	e.mu.Unlock()
+	e.admin.Store(admin)
 	return nil
 }
 
 // BetfairRace returns the catalogue's race, or nil when there is none or no admin account.
 func (e *Engine) BetfairRace(code betfair.RacingCode, country, track string, number int) *betfair.Race {
-	admin := e.adminClient()
+	admin := e.admin.Load()
 	if admin == nil {
 		return nil
 	}
 	return admin.GetRace(code, country, track, number)
 }
 
-func (e *Engine) adminClient() *betfair.Client {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.admin
-}
-
 // Account opens (or joins) the sessions a process needs and binds them with its user's claims.
-func (e *Engine) Account(key clients.ProcessKey, c Credentials) (*Account, error) {
+func (e *Engine) Account(key clients.ProcessKey, creds Credentials) (*Account, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	a := &Account{App: key.App, UserID: key.UserID, ProcessID: key.ProcessID, claims: e.users[key.UserID]}
-	if a.claims == nil {
-		a.claims = newClaims()
-		e.users[key.UserID] = a.claims
-	}
+	c, _ := e.users.LoadOrStore(key.UserID, newClaims())
+	a := &Account{App: key.App, UserID: key.UserID, ProcessID: key.ProcessID, claims: c.(*claims)}
 
-	if c.Betmatic != nil {
-		client, err := join(e.ctx, e.betmatic, key, c.Betmatic.Username, func() (*betmatic.Client, error) {
-			return betmatic.NewBetmaticClient(c.Betmatic.Username, c.Betmatic.Password)
-		})
+	if creds.Betmatic != nil {
+		client, err := e.joinBetmatic(key, *creds.Betmatic)
 		if err != nil {
 			return nil, err
 		}
 		a.betmatic = client
-		a.BotID = c.Betmatic.BotID
-		a.Bookmakers = c.Betmatic.Bookmakers
+		a.BotID = creds.Betmatic.BotID
+		a.Bookmakers = creds.Betmatic.Bookmakers
 	}
 
-	if c.Betfair != nil {
-		client, err := join(e.ctx, e.betfair, key, c.Betfair.Username, func() (*betfair.Client, error) {
-			return betfair.NewBetfairClient(c.Betfair.Username, c.Betfair.Password, c.Betfair.AppKey, c.Betfair.Cert)
-		})
+	if creds.Betfair != nil {
+		client, err := e.joinBetfair(key, *creds.Betfair)
 		if err != nil {
 			leave(e.betmatic, key)
 			return nil, err
@@ -137,10 +124,23 @@ func (e *Engine) Close() {
 		s.client.Close()
 		delete(e.betfair, alias)
 	}
-	if e.admin != nil {
-		e.admin.Close()
-		e.admin = nil
+	if admin := e.admin.Swap(nil); admin != nil {
+		admin.Close()
 	}
+}
+
+// joinBetmatic returns the pooled Betmatic session for c, held by key. Callers hold e.mu.
+func (e *Engine) joinBetmatic(key clients.ProcessKey, c BetmaticCredentials) (*betmatic.Client, error) {
+	return join(e.ctx, e.betmatic, key, c.Username, func() (*betmatic.Client, error) {
+		return betmatic.NewBetmaticClient(c.Username, c.Password)
+	})
+}
+
+// joinBetfair returns the pooled Betfair session for c, held by key. Callers hold e.mu.
+func (e *Engine) joinBetfair(key clients.ProcessKey, c BetfairCredentials) (*betfair.Client, error) {
+	return join(e.ctx, e.betfair, key, c.Username, func() (*betfair.Client, error) {
+		return betfair.NewBetfairClient(c.Username, c.Password, c.AppKey, c.Cert)
+	})
 }
 
 // closeMarket frees every claim on a market the stream reports closed.
@@ -167,12 +167,11 @@ func (e *Engine) expireClaims() {
 }
 
 func (e *Engine) allClaims() []*claims {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	out := make([]*claims, 0, len(e.users))
-	for _, c := range e.users {
-		out = append(out, c)
-	}
+	var out []*claims
+	e.users.Range(func(_, c any) bool {
+		out = append(out, c.(*claims))
+		return true
+	})
 	return out
 }
 

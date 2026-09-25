@@ -247,10 +247,11 @@ const (
 
 // 1000 max per request, last 90 days
 type ListClearedOrdersRequest struct {
-	BetStatus   BetStatus `json:"betStatus"`
-	BetIDs      []string  `json:"betIds,omitempty"`
-	FromRecord  int       `json:"fromRecord,omitempty"`
-	RecordCount int       `json:"recordCount,omitempty"`
+	BetStatus        BetStatus  `json:"betStatus"`
+	BetIDs           []string   `json:"betIds,omitempty"`
+	SettledDateRange *TimeRange `json:"settledDateRange,omitempty"`
+	FromRecord       int        `json:"fromRecord,omitempty"`
+	RecordCount      int        `json:"recordCount,omitempty"`
 }
 
 type ClearedOrderSummaryReport struct {

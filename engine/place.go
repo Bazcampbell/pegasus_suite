@@ -113,7 +113,7 @@ func (e *Engine) placeBetfair(o Order, id string) error {
 	if a.betfair == nil {
 		return errors.New("process has no betfair session")
 	}
-	admin := e.adminClient()
+	admin := e.admin.Load()
 	if admin == nil {
 		return errors.New("no admin betfair account for prices")
 	}

@@ -22,6 +22,7 @@ import (
 	"pegasus_suite/platform/auth"
 	"pegasus_suite/platform/store"
 	"pegasus_suite/platform/util"
+	"pegasus_suite/report"
 
 	"github.com/joho/godotenv"
 )
@@ -120,6 +121,8 @@ func main() {
 	k.Register(pegasus.New())
 
 	defer k.Stop()
+
+	report.Start(ctx, bucket, store, k)
 
 	server, err := api.NewServer(cfg.port, cfg.auth, k)
 	if err != nil {

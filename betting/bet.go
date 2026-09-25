@@ -2,8 +2,6 @@
 
 package betting
 
-import "time"
-
 type BetStatus string
 
 const (
@@ -11,16 +9,15 @@ const (
 	BetWon     BetStatus = "WON"
 	BetLost    BetStatus = "LOST"
 	BetVoid    BetStatus = "VOID"
-	BetLapsed  BetStatus = "LAPSED"
+	BetLapsed  BetStatus = "LAPSED" // never matched, cancelled or rejected
 )
 
-// Bet is one provider bet as the provider settled it.
+// Bet is one provider bet as the provider reports it.
 type Bet struct {
 	ID        string
 	Provider  Provider
 	Status    BetStatus
-	Stake     float64
-	Odds      float64
-	Profit    float64
-	SettledAt time.Time
+	Liability float64 // what was at risk; 0 unless matched and not void
+	Profit    float64 // settled profit; 0 until settled
+	Bot       string  // Betmatic bot ID; empty for Betfair
 }

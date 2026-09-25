@@ -2,52 +2,52 @@
 
 package betmatic
 
-/*
-func (bc *Client) GetBet(id string) (betting.Bet, error) {
-	resp, err := bc.GetNotificationBets(id)
-	if err != nil {
-		return betting.Bet{}, fmt.Errorf("betmatic notification %s: %w", id, err)
-	}
-	b := foldNotificationBets(resp.Bets)
+import (
+	"fmt"
+	"strconv"
 
-	b.ID = id
-	b.Provider = betting.ProviderBetmatic
-	return b, nil
-}
+	"pegasus_suite/betting"
+	"pegasus_suite/platform/util"
+)
 
-//func (bc *Client) GetBetRecap(id [])
+const notificationPageSize = 100
 
-/*
-func foldNotificationBets(bets []NotificationBet) betting.Bet {
-	b := betting.Bet{Status: betting.BetPending}
-	if len(bets) == 0 {
-		return b
-	}
-
-	var weighted float64
-	var accepted bool
-	for _, x := range bets {
-		if x.Profit != 0 {
-			accepted = true
-			b.Stake += float64(x.Amount)
-			b.Profit += float64(x.Profit)
-			weighted += float64(x.Amount) * float64(x.CurrentOdds)
+// MeetingBets returns one bet per notification on the account for a meeting date (YYYY-MM-DD).
+func (bc *Client) MeetingBets(date string) ([]betting.Bet, error) {
+	var out []betting.Bet
+	for page := 1; ; page++ {
+		resp, err := bc.GetNotifications(GetNotificationsRequest{
+			MeetingDateFrom: date,
+			MeetingDateTo:   date,
+			Page:            util.FlexInt(page),
+			PageSize:        notificationPageSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("betmatic notifications %s page %d: %w", date, page, err)
+		}
+		for _, r := range resp.Results {
+			out = append(out, r.bet())
+		}
+		if resp.Next == "" || len(resp.Results) == 0 {
+			return out, nil
 		}
 	}
+}
 
+func (r Result) bet() betting.Bet {
+	b := betting.Bet{ID: strconv.FormatInt(r.ID, 10), Provider: betting.ProviderBetmatic, Bot: r.TargetBot}
+	accepted := float64(r.TotalAccepted)
 	switch {
-	case !accepted:
+	case accepted == 0 && (r.IsCanceled || r.Resulted()):
 		b.Status = betting.BetLapsed
-	case b.Profit > 0:
-		b.Status = betting.BetWon
-	case b.Profit < 0:
-		b.Status = betting.BetLost
+	case !r.Resulted():
+		b.Status = betting.BetPending
+	case r.Profit > 0:
+		b.Status, b.Liability, b.Profit = betting.BetWon, accepted, float64(r.Profit)
+	case r.Profit < 0:
+		b.Status, b.Liability, b.Profit = betting.BetLost, accepted, float64(r.Profit)
 	default:
 		b.Status = betting.BetVoid
 	}
-	if b.Stake > 0 {
-		b.Odds = weighted / b.Stake
-	}
 	return b
 }
-*/
