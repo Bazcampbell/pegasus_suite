@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"pegasus_suite/betting"
 	"pegasus_suite/betting/betfair"
 	"pegasus_suite/betting/betmatic"
 	"pegasus_suite/logger"
@@ -40,7 +41,7 @@ func (e *Engine) Place(o Order) {
 	}
 
 	var err error
-	if o.Side == BetmaticWin {
+	if provider == betting.ProviderBetmatic {
 		err = e.placeBetmatic(o, id)
 	} else {
 		err = e.placeBetfair(o, id)
@@ -69,11 +70,6 @@ func (e *Engine) placeBetmatic(o Order, id string) error {
 	}
 
 	st := o.Stake.Betmatic
-	target := st.WinStake
-	if st.WinMBL {
-		target = maxBetLiability(o.Race.Metro, o.Race.Code == betmatic.THOROUGHBRED)
-	}
-
 	req := betmatic.NotificationRequest{
 		Type:            betmatic.FIXED_PROFIT,
 		Sports:          "RACING",
@@ -87,9 +83,25 @@ func (e *Engine) placeBetmatic(o Order, id string) error {
 		MinOdds:         float32(st.MinOdds),
 		Selection:       o.Runner,
 		BookiesOverride: strings.Join(a.Bookmakers, ","),
-		TargetProfit:    target * o.Unit,
 		TargetBot:       a.BotID,
 		Label:           strings.ToUpper(a.App),
+	}
+	if o.Side == BetmaticPlace {
+		req.Market = betmatic.FIXED_PLACE
+	}
+	switch {
+	case st.Cash:
+		req.Type = betmatic.HIGH_ODDS_FIRST
+		req.Stake = st.WinStake * o.Unit
+		req.TotalWager = req.Stake
+		req.EnsureTotalWager = true
+		req.AllowedDoubleBets = true
+		req.TargetBetType = "CASH"
+		req.CheckMaxOdds = false
+	case st.WinMBL:
+		req.TargetProfit = maxBetLiability(o.Race.Metro, o.Race.Code == betmatic.THOROUGHBRED) * o.Unit
+	default:
+		req.TargetProfit = st.WinStake * o.Unit
 	}
 
 	notificationID, err := a.betmatic.PlaceBet(req)
@@ -103,6 +115,7 @@ func (e *Engine) placeBetmatic(o Order, id string) error {
 		BetID:    id,
 		Provider: "betmatic",
 		BetType:  string(req.Type),
+		Stake:    req.Stake,
 		Target:   req.TargetProfit,
 	})
 	return nil

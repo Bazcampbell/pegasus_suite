@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"pegasus_suite/apps/davo"
 	"pegasus_suite/apps/pegasus"
 	"pegasus_suite/clients/doc"
 	"pegasus_suite/kernel"
@@ -119,6 +120,7 @@ func main() {
 
 	// register applications
 	k.Register(pegasus.New())
+	k.Register(davo.New())
 
 	defer k.Stop()
 

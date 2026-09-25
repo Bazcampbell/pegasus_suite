@@ -1,4 +1,4 @@
-// packages/anthropic/client.go
+// davo/anthropic/client.go
 
 package anthropic
 
@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"strings"
 
-	logger "pegasus_suite/logger"
+	"pegasus_suite/logger"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 const (
-	ocrModel = anthropic.ModelClaudeOpus5
+	ocrModel = "claude-opus-5"
 
 	ocrMaxTokens = 1024
 
@@ -70,7 +70,7 @@ func (c *Client) ExtractText(ctx context.Context, image []byte) (string, error) 
 		return "", fmt.Errorf("unsupported image type %q", mediaType)
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("anthropic ocr: request model=%v media_type=%v bytes=%v", ocrModel, mediaType, len(image)),
 	})
 
@@ -99,7 +99,7 @@ func (c *Client) ExtractText(ctx context.Context, image []byte) (string, error) 
 		return "", fmt.Errorf("request refused: %s", msg.StopDetails.Explanation)
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("anthropic ocr: usage input_tokens=%v output_tokens=%v stop_reason=%v", msg.Usage.InputTokens, msg.Usage.OutputTokens, msg.StopReason),
 	})
 
@@ -122,13 +122,13 @@ func logAPIError(op string, err error) {
 	var apiErr *anthropic.Error
 	if !errors.As(err, &apiErr) {
 		// Transport-level failure - no HTTP response came back at all.
-		logger.Error(logger.ErrorLog{
+		logger.Error(logger.Log{
 			Message: fmt.Sprintf("anthropic request failed op=%v error=%v", op, err),
 		})
 		return
 	}
 
-	logger.Error(logger.ErrorLog{
+	logger.Error(logger.Log{
 		Message: fmt.Sprintf("anthropic returned an error response op=%v status=%v type=%v request_id=%v error=%v", op, apiErr.StatusCode, apiErr.Type(), apiErr.RequestID, err),
 	})
 }

@@ -1,10 +1,11 @@
-// packages/betting/types.go
+// davo/tips/types.go
 
-package betting
+package tips
 
 import "fmt"
 
 type Candidate struct {
+	Date       string // race date, YYYY-MM-DD; "" when Betmatic gave none
 	RaceNumber int
 	Venue      string
 	RunnerName string
@@ -41,6 +42,7 @@ func (b DavoBet) String() string {
 }
 
 type EventMatch struct {
+	Date       string
 	Venue      string
 	RunnerName string
 	RunnerNo   int

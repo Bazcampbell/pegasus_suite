@@ -1,6 +1,6 @@
-// packages/betting/candidates.go
+// davo/tips/candidates.go
 
-package betting
+package tips
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func RaceCandidates(eventMap map[int]map[string]betmatic.Event, raceNumber int) ([]Candidate, error) {
@@ -72,6 +73,7 @@ func collect(events map[string]betmatic.Event, raceNumber int) []Candidate {
 			}
 
 			out = append(out, Candidate{
+				Date:       eventDate(event),
 				RaceNumber: raceNumber,
 				Venue:      event.Name,
 				RunnerName: name,
@@ -94,4 +96,16 @@ func sortCandidates(c []Candidate) {
 		}
 		return c[i].RunnerNo < c[j].RunnerNo
 	})
+}
+
+// eventDate returns the event's race date as YYYY-MM-DD, or "" when neither date field carries one.
+func eventDate(e betmatic.Event) string {
+	for _, v := range []string{e.StartTime, e.ScrapeDate} {
+		if len(v) >= 10 {
+			if _, err := time.Parse(time.DateOnly, v[:10]); err == nil {
+				return v[:10]
+			}
+		}
+	}
+	return ""
 }

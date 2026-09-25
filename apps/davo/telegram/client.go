@@ -1,4 +1,4 @@
-// packages/telegram/client.go
+// davo/telegram/client.go
 
 package telegram
 
@@ -6,9 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
+
+	"pegasus_suite/logger"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
@@ -34,7 +35,7 @@ func NewClient(token string, scrapeChannelID int64) (*Client, error) {
 		return nil, fmt.Errorf("creating bot: %w", err)
 	}
 
-	slog.Info("initialised telegram client", "account", bot.Self.UserName)
+	logger.Info(logger.Log{App: "davo", Message: "telegram connected account=" + bot.Self.UserName})
 
 	return &Client{
 		bot:             bot,

@@ -1,10 +1,10 @@
-// packages/betting/parser.go
+// davo/tips/parser.go
 
-package betting
+package tips
 
 import (
 	"fmt"
-	logger "pegasus_suite/logger"
+	"pegasus_suite/logger"
 	"regexp"
 	"strconv"
 	"strings"
@@ -23,7 +23,7 @@ var (
 
 func LooksLikeBet(text string) bool {
 	hit := betSignals.FindString(text)
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("bet signal check matched=%v signal=%v text=%v", hit != "", hit, text),
 	})
 	return hit != ""
@@ -32,71 +32,71 @@ func LooksLikeBet(text string) bool {
 func SniffRaceNumber(text string) int {
 	m := looseRaceNumberRegex.FindStringSubmatch(text)
 	if m == nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("race number sniff: no match text=%v", text),
 		})
 		return 0
 	}
 	n, err := strconv.Atoi(m[1])
 	if err != nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("race number sniff: unparseable capture=%v error=%v", m[1], err),
 		})
 		return 0
 	}
-	logger.Debug(logger.InfoLog{
-		Message:     fmt.Sprintf("race number sniff: hit matched=%v", m[0]),
-		RaceDetails: &logger.Race{Number: n},
+	logger.Debug(logger.Log{
+		Message: fmt.Sprintf("race number sniff: hit matched=%v", m[0]),
+		Race:    &logger.Race{Number: n},
 	})
 	return n
 }
 
 func Parse(text string) (DavoBet, error) {
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: start text=%v", text),
 	})
 
 	raceNumberMatch := raceNumberRegex.FindStringSubmatch(text)
 	if raceNumberMatch == nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("strict parse: no race number text=%v", text),
 		})
 		return DavoBet{}, fmt.Errorf("no race match")
 	}
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: race number capture=%v", raceNumberMatch[1]),
 	})
 
 	runnerNumberNameMatch := runnerNumberNameRegex.FindStringSubmatch(text)
 	if runnerNumberNameMatch == nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("strict parse: no runner number/name text=%v", text),
 		})
 		return DavoBet{}, fmt.Errorf("no runner number and/or name match")
 	}
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: runner number=%v name=%v", runnerNumberNameMatch[1], runnerNumberNameMatch[2]),
 	})
 
 	stakeMatch := betStakeRegex.FindStringSubmatch(text)
 	if stakeMatch == nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("strict parse: no stake text=%v", text),
 		})
 		return DavoBet{}, fmt.Errorf("no stake match")
 	}
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: stake capture=%v", stakeMatch[1]),
 	})
 
 	ratedOddsMatch := ratedOddsRegex.FindStringSubmatch(text)
 	if ratedOddsMatch == nil {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("strict parse: no rated odds text=%v", text),
 		})
 		return DavoBet{}, fmt.Errorf("no rated odds match")
 	}
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: rated odds capture=%v", ratedOddsMatch[1]),
 	})
 
@@ -136,7 +136,7 @@ func Parse(text string) (DavoBet, error) {
 		RatedOdds:  ratedOdds,
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("strict parse: ok selection=%v", bet.String()),
 	})
 	return bet, nil

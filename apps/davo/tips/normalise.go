@@ -1,6 +1,6 @@
-// packages/util/strings.go
+// davo/tips/normalise.go
 
-package util
+package tips
 
 import (
 	"strings"
@@ -31,7 +31,7 @@ func Levenshtein(a, b string) int {
 			if ar[i-1] == br[j-1] {
 				cost = 0
 			}
-			curr[j] = Min3(
+			curr[j] = min(
 				prev[j]+1,      // deletion
 				curr[j-1]+1,    // insertion
 				prev[j-1]+cost, // substitution

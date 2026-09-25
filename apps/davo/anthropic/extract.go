@@ -1,4 +1,4 @@
-// packages/anthropic/extract.go
+// davo/anthropic/extract.go
 //
 // The fallback for anything the strict parser could not turn into a bet. The
 // message and the real field are handed to the model, which either identifies
@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"strings"
 
-	logger "pegasus_suite/logger"
+	"pegasus_suite/logger"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
 const (
-	extractModel = anthropic.ModelClaudeOpus5
+	extractModel = "claude-opus-5"
 
 	extractMaxTokens = 2048
 
@@ -129,7 +129,7 @@ func (c *Client) ExtractBet(ctx context.Context, text string, candidates []Candi
 		fmt.Fprintf(&prompt, "%d. R%d %s - #%d %s\n", i+1, cand.RaceNumber, cand.Venue, cand.RunnerNo, cand.RunnerName)
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("anthropic extract: request model=%v effort=%v candidates=%v prompt_chars=%v", extractModel, extractEffort, len(candidates), prompt.Len()),
 	})
 
@@ -156,7 +156,7 @@ func (c *Client) ExtractBet(ctx context.Context, text string, candidates []Candi
 		return Extraction{}, fmt.Errorf("request refused: %s", msg.StopDetails.Explanation)
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("anthropic extract: usage input_tokens=%v output_tokens=%v stop_reason=%v", msg.Usage.InputTokens, msg.Usage.OutputTokens, msg.StopReason),
 	})
 
@@ -164,7 +164,7 @@ func (c *Client) ExtractBet(ctx context.Context, text string, candidates []Candi
 	if body == "" {
 		return Extraction{}, fmt.Errorf("no answer returned")
 	}
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("anthropic extract: raw reply json=%v", body),
 	})
 

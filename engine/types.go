@@ -14,6 +14,7 @@ type Side int
 
 const (
 	BetmaticWin Side = iota
+	BetmaticPlace
 	BetfairBack
 	BetfairLay
 )
@@ -22,6 +23,8 @@ func (s Side) String() string {
 	switch s {
 	case BetmaticWin:
 		return "betmatic-win"
+	case BetmaticPlace:
+		return "betmatic-place"
 	case BetfairBack:
 		return "betfair-back"
 	case BetfairLay:
@@ -32,7 +35,7 @@ func (s Side) String() string {
 }
 
 func (s Side) provider() betting.Provider {
-	if s == BetmaticWin {
+	if s == BetmaticWin || s == BetmaticPlace {
 		return betting.ProviderBetmatic
 	}
 	return betting.ProviderBetfair
@@ -65,7 +68,7 @@ func (o Order) BetID() string {
 
 func (o Order) staked() bool {
 	switch o.Side {
-	case BetmaticWin:
+	case BetmaticWin, BetmaticPlace:
 		return o.Stake.BetsBetmatic()
 	case BetfairBack:
 		return o.Stake.Betfair.BackStake > 0
@@ -80,11 +83,13 @@ type Stake struct {
 	Betfair  BetfairStake  `json:"betfair"`
 }
 
+// BetmaticStake targets WinStake × unit profit, or with Cash stakes WinStake × unit dollars at the highest odds.
 type BetmaticStake struct {
 	WinStake float64 `json:"win_stake"`
 	WinMBL   bool    `json:"win_mbl"`
 	MinOdds  float64 `json:"min_odds"`
 	MaxOdds  float64 `json:"max_odds"`
+	Cash     bool    `json:"cash,omitempty"`
 }
 
 type BetfairStake struct {

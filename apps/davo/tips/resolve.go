@@ -1,13 +1,12 @@
-// packages/betting/resolve.go
+// davo/tips/resolve.go
 
-package betting
+package tips
 
 import (
 	"errors"
 	"fmt"
-	"pegasus_suite/apps/davo/util"
 	"pegasus_suite/betting/betmatic"
-	logger "pegasus_suite/logger"
+	"pegasus_suite/logger"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,23 +36,23 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 
 	best := candidates[0]
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("local resolve: ranked field needle=%v candidates=%v best=%v best_venue=%v best_number=%v best_name_score=%.3f best_total_score=%.3f",
 			runnerName, len(candidates), best.RunnerName, best.Venue, best.RunnerNo, best.nameScore, best.score),
-		RaceDetails: &logger.Race{Number: raceNumber},
+		Race: &logger.Race{Number: raceNumber},
 	})
 
 	if len(candidates) > 1 {
 		r := candidates[1]
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("local resolve: runner-up runner=%v number=%v total_score=%.3f margin=%.3f margin_required=%v",
 				r.RunnerName, r.RunnerNo, r.score, best.score-r.score, nameMatchMargin),
-			RaceDetails: &logger.Race{Venue: r.Venue},
+			Race: &logger.Race{Venue: r.Venue},
 		})
 	}
 
 	if best.nameScore < nameMatchFloor {
-		logger.Debug(logger.InfoLog{
+		logger.Debug(logger.Log{
 			Message: fmt.Sprintf("local resolve: below name floor score=%.3f floor=%v", best.nameScore, nameMatchFloor),
 		})
 		return EventMatch{}, fmt.Errorf("no runner in R%d resembles %q (closest %q #%d at %.0f%%, need %.0f%%)",
@@ -65,7 +64,7 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 	if len(candidates) > 1 {
 		second := candidates[1]
 		if best.score-second.score < nameMatchMargin {
-			logger.Debug(logger.InfoLog{
+			logger.Debug(logger.Log{
 				Message: "local resolve: ambiguous, escalating",
 			})
 			return EventMatch{}, fmt.Errorf("ambiguous runner for R%d %q: %q #%d at %s and %q #%d at %s score too close (%.2f vs %.2f)",
@@ -76,13 +75,14 @@ func ResolveEvent(eventMap map[int]map[string]betmatic.Event, raceNumber, runner
 		}
 	}
 
-	logger.Debug(logger.InfoLog{
+	logger.Debug(logger.Log{
 		Message: fmt.Sprintf("local resolve: matched runner=%v number=%v score=%.3f",
 			best.RunnerName, best.RunnerNo, best.nameScore),
-		RaceDetails: &logger.Race{Venue: best.Venue},
+		Race: &logger.Race{Venue: best.Venue},
 	})
 
 	return EventMatch{
+		Date:       best.Date,
 		Venue:      best.Venue,
 		RunnerName: best.RunnerName,
 		RunnerNo:   best.RunnerNo,
@@ -101,7 +101,7 @@ func rank(eventMap map[int]map[string]betmatic.Event, raceNumber, runnerNumber i
 		return nil, fmt.Errorf("no events found for R%d: %w", raceNumber, ErrNoCandidates)
 	}
 
-	needle := util.Normalise(runnerName)
+	needle := Normalise(runnerName)
 	candidates := make([]scored, 0)
 
 	for runnerNames, event := range events {
@@ -126,12 +126,13 @@ func rank(eventMap map[int]map[string]betmatic.Event, raceNumber, runnerNumber i
 
 			c := scored{
 				Candidate: Candidate{
+					Date:       eventDate(event),
 					RaceNumber: raceNumber,
 					Venue:      event.Name,
 					RunnerName: name,
 					RunnerNo:   num,
 				},
-				nameScore: similarity(util.Normalise(name), needle),
+				nameScore: similarity(Normalise(name), needle),
 			}
 
 			c.score = c.nameScore
@@ -164,7 +165,7 @@ func similarity(a, b string) float64 {
 		return 0
 	}
 
-	dist := util.Levenshtein(a, b)
+	dist := Levenshtein(a, b)
 	longest := len(a)
 	if len(b) > longest {
 		longest = len(b)
