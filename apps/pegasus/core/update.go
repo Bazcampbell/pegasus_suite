@@ -4,13 +4,6 @@ package core
 
 import "pegasus_suite/betting/betmatic"
 
-type Provider string
-
-const (
-	ProviderTripleS Provider = "triple-s"
-	ProviderTPD     Provider = "tpd"
-)
-
 type RaceStatus int
 
 const (
@@ -34,8 +27,6 @@ func (s RaceStatus) String() string {
 }
 
 type RaceRef struct {
-	Provider Provider
-
 	// unique for race
 	Key string
 

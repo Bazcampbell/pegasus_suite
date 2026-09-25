@@ -30,7 +30,6 @@ func (m RaceMessage) Ref() (core.RaceRef, bool) {
 	}
 
 	return core.RaceRef{
-		Provider: core.ProviderTripleS,
 		// The event date is in the key because a venue runs the same race
 		// numbers again tomorrow, and strategy state is keyed on this.
 		Key:        fmt.Sprintf("triple-s/%s/%s/%d", m.EventDate, m.Venue.Name, m.RaceNumber),

@@ -9,7 +9,6 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 
 	"pegasus_suite/apps/pegasus/core"
 	"pegasus_suite/clients"
@@ -22,7 +21,7 @@ import (
 //	  "betmatic": {"username": "", "password": "", "bot_id": "", "bookmakers": ["3", "7"]},
 //	  "betfair":  {"username": "", "password": "", "app_key": "", "cert": ""},
 //	  "scopes": {
-//	    "US/THOROUGHBRED": {
+//	    "AU/THOROUGHBRED": {
 //	      "betmatic": {"win_stake": 10, "win_mbl": false, "min_odds": 1.5, "max_odds": 12},
 //	      "betfair":  {"back_stake": 0, "lay_stake": 0, "min_odds": 0, "max_odds": 0},
 //	      "betmatic_delay_ms": 2000,
@@ -139,17 +138,11 @@ func (s *ProcessSettings) Validate() error {
 	return nil
 }
 
-// ---- feed documents (settings/apps/triples.json, settings/apps/tpd.json) ----
+// ---- feed document (settings/apps/triples.json) ----
 //
-// One admin-level document per feed, each carrying its own on/off switch.
-//
-//	triples: {"enabled": true, "endpoint": "", "region": "", "access_key_id": "", "secret_access_key": "", "client_id": ""}
-//	tpd:     {"enabled": false, "licence_key": "", "udp_port": "4629"}
+//	{"enabled": true, "endpoint": "", "region": "", "access_key_id": "", "secret_access_key": "", "client_id": ""}
 
-const (
-	TripleSDoc = "triples"
-	TPDDoc     = "tpd"
-)
+const TripleSDoc = "triples"
 
 type TripleS struct {
 	Enabled         bool   `json:"enabled"`
@@ -160,23 +153,9 @@ type TripleS struct {
 	ClientID        string `json:"client_id"`
 }
 
-type TPD struct {
-	Enabled    bool   `json:"enabled"`
-	LicenceKey string `json:"licence_key"`
-	UDPPort    string `json:"udp_port"`
-}
-
-// Gmax default. Their helpsheet says any port can be arranged, so this is only
-// what we listen on when nothing is configured.
-const defaultTPDPort = "4629"
-
-// Triple-S defaults on because that is what the runtime did before there was a
-// choice; TPD defaults off so a deploy never starts a feed nobody configured.
 func DefaultTripleS() *TripleS { return &TripleS{Enabled: true} }
-func DefaultTPD() *TPD         { return &TPD{UDPPort: defaultTPDPort} }
 
-// Validate holds an enabled feed to everything it connects with. A disabled
-// feed may be left half filled in.
+// Validate requires every connection field when the feed is enabled.
 func (t *TripleS) Validate() error {
 	if !t.Enabled {
 		return nil
@@ -187,41 +166,13 @@ func (t *TripleS) Validate() error {
 	return nil
 }
 
-func (t *TPD) Validate() error {
-	if t.UDPPort != "" {
-		if p, err := strconv.Atoi(t.UDPPort); err != nil || p < 1 || p > 65535 {
-			return fmt.Errorf("tpd udp port %q is not a port", t.UDPPort)
-		}
-	}
-	if t.Enabled && t.LicenceKey == "" {
-		return fmt.Errorf("tpd licence key not set")
-	}
-	return nil
-}
-
-// ParseTripleS and ParseTPD decode a feed document over its defaults; a
-// missing document is the defaults. They do not Validate: a feed with bad
-// settings fails on its own at start and is reported, rather than taking the
-// app down.
+// ParseTripleS decodes doc over the defaults without validating; a missing document is the defaults.
 func ParseTripleS(doc json.RawMessage) (*TripleS, error) {
 	t := DefaultTripleS()
 	if len(doc) > 0 {
 		if err := json.Unmarshal(doc, t); err != nil {
 			return nil, fmt.Errorf("triple-s settings: %w", err)
 		}
-	}
-	return t, nil
-}
-
-func ParseTPD(doc json.RawMessage) (*TPD, error) {
-	t := DefaultTPD()
-	if len(doc) > 0 {
-		if err := json.Unmarshal(doc, t); err != nil {
-			return nil, fmt.Errorf("tpd settings: %w", err)
-		}
-	}
-	if t.UDPPort == "" {
-		t.UDPPort = defaultTPDPort
 	}
 	return t, nil
 }

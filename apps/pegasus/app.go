@@ -17,8 +17,6 @@ import (
 	"pegasus_suite/apps/pegasus/dispatch"
 	"pegasus_suite/apps/pegasus/process"
 	"pegasus_suite/apps/pegasus/settings"
-	"pegasus_suite/apps/pegasus/strategy"
-	"pegasus_suite/apps/pegasus/tpd"
 	"pegasus_suite/apps/pegasus/triples"
 	"pegasus_suite/betting/betfair"
 	"pegasus_suite/clients"
@@ -28,15 +26,7 @@ import (
 
 const Name = core.AppName
 
-// Feed identifiers. The key is the feed's settings document name, so the
-// Program tab joins FeedStatus to the toggle that edits that document.
-const (
-	feedTripleS = "triple-s"
-	feedTPD     = "tpd"
-
-	keyTripleS = settings.TripleSDoc
-	keyTPD     = settings.TPDDoc
-)
+const feedTripleS = "triple-s"
 
 // FeedStatus is keyed by the feed's settings document name.
 type FeedStatus struct {
@@ -55,8 +45,7 @@ type App struct {
 	ctx     context.Context
 	betfair *betfair.Client
 	triples *triples.Client
-	tpd     *tpd.Client
-	enabled map[core.Provider]bool
+	enabled bool
 
 	feeds atomic.Pointer[[]FeedStatus]
 
@@ -76,12 +65,10 @@ func (a *App) Name() string { return Name }
 
 func (a *App) ProcessSettings() kernel.Settings { return &settings.ProcessSettings{} }
 
-// AdminSettings are the feed documents Pegasus owns. The admin Betfair account
-// it also reads is shared, so the kernel owns that one.
+// AdminSettings returns the Triple-S feed document, the only admin document Pegasus owns.
 func (a *App) AdminSettings() map[string]func() kernel.Settings {
 	return map[string]func() kernel.Settings{
 		settings.TripleSDoc: func() kernel.Settings { return settings.DefaultTripleS() },
-		settings.TPDDoc:     func() kernel.Settings { return settings.DefaultTPD() },
 	}
 }
 
@@ -100,18 +87,9 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	if err != nil {
 		return err
 	}
-	if doc, err = h.Settings(settings.TPDDoc); err != nil {
-		return fmt.Errorf("settings: %w", err)
-	}
-	tpdCfg, err := settings.ParseTPD(doc)
-	if err != nil {
-		return err
-	}
 
-	logger.Info(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("pegasus starting triple_s=%v tpd=%v", tripleSCfg.Enabled, tpdCfg.Enabled)})
-
-	if !tripleSCfg.Enabled && !tpdCfg.Enabled {
-		logger.Warn(logger.Log{Application: core.AppName, FormattedMessage: "pegasus starting with every live feed disabled; no race data will arrive and nothing will bet"})
+	if !tripleSCfg.Enabled {
+		logger.Warn(logger.Log{Application: core.AppName, FormattedMessage: "pegasus starting with triple-s disabled; nothing will bet"})
 	}
 
 	// The admin exchange account resolves races and polls prices for every
@@ -123,15 +101,10 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 
 	a.ctx = ctx
 	a.betfair = bf
-	a.enabled = map[core.Provider]bool{
-		core.ProviderTripleS: tripleSCfg.Enabled,
-		core.ProviderTPD:     tpdCfg.Enabled,
-	}
+	a.enabled = tripleSCfg.Enabled
 
-	// Neither feed is fatal: one being unreachable is not a reason to deny the
-	// other. The app comes up without it, Status says which one is down and
-	// why, and a restart brings it back once the source is up.
-	tripleS := FeedStatus{Key: keyTripleS, Enabled: tripleSCfg.Enabled}
+	// A feed that fails to connect leaves the app up and reported down in Status.
+	tripleS := FeedStatus{Key: settings.TripleSDoc, Enabled: tripleSCfg.Enabled}
 	if tripleSCfg.Enabled {
 		client, err := a.setupTriples(ctx, *tripleSCfg, gen)
 		if err != nil {
@@ -142,18 +115,7 @@ func (a *App) Start(ctx context.Context, h kernel.Host) error {
 	}
 	tripleS.Running = a.triples != nil
 
-	tpdStatus := FeedStatus{Key: keyTPD, Enabled: tpdCfg.Enabled}
-	if tpdCfg.Enabled {
-		client, err := a.setupTPD(ctx, *tpdCfg, gen)
-		if err != nil {
-			tpdStatus.Error = err.Error()
-			logger.Error(logger.Log{Application: core.AppName, FormattedMessage: fmt.Sprintf("tpd did not start; nothing will bet off it until a restart error=%v", err)})
-		}
-		a.tpd = client
-	}
-	tpdStatus.Running = a.tpd != nil
-
-	a.feeds.Store(&[]FeedStatus{tripleS, tpdStatus})
+	a.feeds.Store(&[]FeedStatus{tripleS})
 	return nil
 }
 
@@ -164,10 +126,6 @@ func (a *App) Stop() {
 	if a.triples != nil {
 		a.triples.Disconnect()
 		a.triples = nil
-	}
-	if a.tpd != nil {
-		a.tpd.Close()
-		a.tpd = nil
 	}
 	if a.betfair != nil {
 		a.betfair.Close()
@@ -227,16 +185,6 @@ func (a *App) setupTriples(ctx context.Context, s settings.TripleS, gen uint64) 
 	})
 }
 
-func (a *App) setupTPD(ctx context.Context, s settings.TPD, gen uint64) (*tpd.Client, error) {
-	if err := s.Validate(); err != nil {
-		return nil, err
-	}
-
-	return tpd.NewClient(ctx, s.UDPPort, s.LicenceKey, a.onTPD, func(e error) {
-		a.onFeedFatal(gen, feedTPD, e)
-	})
-}
-
 // onFeedFatal takes one permanently lost feed out of service and leaves the
 // rest betting: its client is closed and Status reports it down with the
 // reason. A restart brings it back.
@@ -248,20 +196,9 @@ func (a *App) onFeedFatal(gen uint64, feed string, err error) {
 		return
 	}
 
-	var key string
-	switch feed {
-	case feedTripleS:
-		key = keyTripleS
-		if a.triples != nil {
-			a.triples.Disconnect()
-			a.triples = nil
-		}
-	case feedTPD:
-		key = keyTPD
-		if a.tpd != nil {
-			a.tpd.Close()
-			a.tpd = nil
-		}
+	if a.triples != nil {
+		a.triples.Disconnect()
+		a.triples = nil
 	}
 
 	// Copied rather than mutated in place so a concurrent Status cannot read a
@@ -270,7 +207,7 @@ func (a *App) onFeedFatal(gen uint64, feed string, err error) {
 		updated := make([]FeedStatus, len(*current))
 		copy(updated, *current)
 		for i := range updated {
-			if updated[i].Key == key {
+			if updated[i].Key == settings.TripleSDoc {
 				updated[i].Running = false
 				updated[i].Error = err.Error()
 			}
@@ -331,30 +268,19 @@ func activeScopes(s *settings.ProcessSettings) []string {
 	return keys
 }
 
-// A scope is only bettable if a feed covers its country and a strategy exists
-// for that feed and racing code. Checked at add and restart, where it can still
-// be reported to the operator rather than discovered as a quiet afternoon.
+// validateScopes rejects a process with an active scope outside AU or while Triple-S is disabled.
 func (a *App) validateScopes(s *settings.ProcessSettings) error {
 	a.mu.RLock()
 	enabled := a.enabled
 	a.mu.RUnlock()
 
 	for _, key := range activeScopes(s) {
-		country, code, ok := core.SplitScopeKey(key)
-		if !ok {
+		country, _, ok := core.SplitScopeKey(key)
+		if !ok || country != "AU" {
 			return fmt.Errorf("unknown scope %q", key)
 		}
-
-		provider, ok := core.ProviderFor(country)
-		if !ok {
-			return fmt.Errorf("no live feed covers %q", country)
-		}
-		if !enabled[provider] {
-			return fmt.Errorf("scope %s: feed %s is disabled", key, provider)
-		}
-
-		if !strategy.Covers(provider, code) {
-			return fmt.Errorf("scope %s: no strategy for provider %q code %q", key, provider, code)
+		if !enabled {
+			return fmt.Errorf("scope %s: triple-s is disabled", key)
 		}
 	}
 	return nil
@@ -362,40 +288,18 @@ func (a *App) validateScopes(s *settings.ProcessSettings) error {
 
 // ---- fan-out ----
 
-// onTripleS and onTPD are the feed handlers: every running process whose scope
-// matches gets the message on its inbox.
-//
-// The venue name is canonicalised here, once per packet, so every log line
-// downstream names the track the same way.
+// onTripleS offers a Triple-S message, with its venue named the Betmatic way, to every process in scope.
 func (a *App) onTripleS(m triples.RaceMessage) {
 	ref, ok := m.Ref()
 	if !ok || ref.Scope == "" {
 		return
 	}
-	ref.VenueName = core.CanonicalVenue(ref.Provider, ref.Venue, ref.VenueName)
+	ref.VenueName = core.CanonicalVenue(ref.Venue, ref.VenueName)
 
 	wanted := false
 	a.mu.RLock()
 	for _, p := range a.procs {
 		if p.OfferTripleS(m, ref) {
-			wanted = true
-		}
-	}
-	a.mu.RUnlock()
-
-	a.afterFanOut(ref, wanted)
-}
-
-func (a *App) onTPD(pr tpd.Progress, ref core.RaceRef) {
-	if ref.Scope == "" {
-		return
-	}
-	ref.VenueName = core.CanonicalVenue(ref.Provider, ref.Venue, ref.VenueName)
-
-	wanted := false
-	a.mu.RLock()
-	for _, p := range a.procs {
-		if p.OfferTPD(pr, ref) {
 			wanted = true
 		}
 	}
@@ -425,7 +329,7 @@ func (a *App) noMatch(ref core.RaceRef) {
 
 	logger.Debug(logger.Log{
 		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("race reached no process scope=%v provider=%v status=%v", ref.Scope, ref.Provider, ref.Status),
+		FormattedMessage: fmt.Sprintf("race reached no process scope=%v status=%v", ref.Scope, ref.Status),
 		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 }
@@ -446,7 +350,7 @@ func (a *App) setBetfairPriceFeed(ref core.RaceRef, on bool) {
 		return
 	}
 
-	trackName, ok := core.BetfairTrackFor(ref.Provider, ref.Venue)
+	trackName, ok := core.BetfairTrackFor(ref.Venue)
 	if !ok {
 		return
 	}
@@ -472,7 +376,7 @@ func (a *App) missingBetfairRace(ref core.RaceRef, trackName string) {
 
 	logger.Warn(logger.Log{
 		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("betfair race not loaded; no prices for it scope=%v provider=%v betfair_track=%v", ref.Scope, ref.Provider, trackName),
+		FormattedMessage: fmt.Sprintf("betfair race not loaded; no prices for it scope=%v betfair_track=%v", ref.Scope, trackName),
 		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
 	})
 }
@@ -483,7 +387,7 @@ func (a *App) lookupBetfairRace(ref core.RaceRef) *core.BetfairRace {
 		return nil
 	}
 
-	trackName, ok := core.BetfairTrackFor(ref.Provider, ref.Venue)
+	trackName, ok := core.BetfairTrackFor(ref.Venue)
 	if !ok {
 		return nil
 	}

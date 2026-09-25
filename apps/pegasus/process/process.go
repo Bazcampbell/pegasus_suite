@@ -16,7 +16,6 @@ import (
 	"pegasus_suite/apps/pegasus/dispatch"
 	"pegasus_suite/apps/pegasus/settings"
 	"pegasus_suite/apps/pegasus/strategy"
-	"pegasus_suite/apps/pegasus/tpd"
 	triples "pegasus_suite/apps/pegasus/triples"
 	"pegasus_suite/logger"
 )
@@ -28,18 +27,12 @@ type tripleSMsg struct {
 	ref core.RaceRef
 }
 
-type tpdMsg struct {
-	p   tpd.Progress
-	ref core.RaceRef
-}
-
 type Process struct {
 	Settings settings.ProcessSettings
 
 	// Fed by the application's fan-out. Buffered so a slow decision never
 	// blocks the feed; a full inbox drops.
 	tripleS chan tripleSMsg
-	tpd     chan tpdMsg
 
 	dispatcher     *dispatch.Dispatcher
 	getBetfairRace func(core.RaceRef) *core.BetfairRace
@@ -54,7 +47,6 @@ type Process struct {
 
 	// Only the run goroutine touches these.
 	forwardProgress *strategy.ForwardProgress
-	tpdLeader       *strategy.TPDLeader
 
 	// Races this process has already reported on, so the first update for a race
 	// logs what it decided and the ticks that follow stay quiet.
@@ -68,13 +60,11 @@ func New(s settings.ProcessSettings, d *dispatch.Dispatcher, getBetfairRace func
 	return &Process{
 		Settings:        s,
 		tripleS:         make(chan tripleSMsg, inboxSize),
-		tpd:             make(chan tpdMsg, inboxSize),
 		dispatcher:      d,
 		getBetfairRace:  getBetfairRace,
 		setPriceFeed:    setPriceFeed,
 		onClose:         onClose,
 		forwardProgress: strategy.NewForwardProgress(),
-		tpdLeader:       strategy.NewTPDLeader(),
 		seenRaces:       make(map[string]bool),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -97,18 +87,6 @@ func (p *Process) OfferTripleS(m triples.RaceMessage, ref core.RaceRef) bool {
 	}
 	select {
 	case p.tripleS <- tripleSMsg{m: m, ref: ref}:
-	default:
-		p.inboxFull(ref)
-	}
-	return true
-}
-
-func (p *Process) OfferTPD(pr tpd.Progress, ref core.RaceRef) bool {
-	if !p.Wants(ref) {
-		return false
-	}
-	select {
-	case p.tpd <- tpdMsg{p: pr, ref: ref}:
 	default:
 		p.inboxFull(ref)
 	}
@@ -187,14 +165,6 @@ func (p *Process) run(ctx context.Context) {
 			}
 			d, err := p.forwardProgress.Select(msg.m, msg.ref, scope.BetfairDelay, scope.BetmaticDelay, p.getBetfairRace)
 			p.act(msg.ref, scope, d, err)
-
-		case msg := <-p.tpd:
-			scope, ok := p.scopeFor(msg.ref)
-			if !ok {
-				continue
-			}
-			d, err := p.tpdLeader.Select(msg.p, msg.ref, scope.BetfairDelay, scope.BetmaticDelay)
-			p.act(msg.ref, scope, d, err)
 		}
 	}
 }
@@ -213,7 +183,7 @@ func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {
 		p.seenRaces[ref.Key] = true
 		logger.Debug(logger.Log{
 			Application:      core.AppName,
-			FormattedMessage: fmt.Sprintf("race in scope=%v provider=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Provider, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
+			FormattedMessage: fmt.Sprintf("race in scope=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
 			UserID:           p.Settings.UserID,
 			ProcessID:        p.Settings.ID,
 			RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},
@@ -247,7 +217,7 @@ func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, decision c
 
 	logger.Debug(logger.Log{
 		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("selections made provider=%v bets=%+v", ref.Provider, decision.Bets),
+		FormattedMessage: fmt.Sprintf("selections made bets=%+v", decision.Bets),
 		UserID:           p.Settings.UserID,
 		ProcessID:        p.Settings.ID,
 		RaceDetails:      &logger.RaceDetails{Venue: ref.VenueName, RaceNumber: ref.RaceNumber},

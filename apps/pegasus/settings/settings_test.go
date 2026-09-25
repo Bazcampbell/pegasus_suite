@@ -72,24 +72,6 @@ func TestProcessSettingsValidate(t *testing.T) {
 }
 
 func TestFeedSettingsValidate(t *testing.T) {
-	if err := DefaultTPD().Validate(); err != nil {
-		t.Fatalf("tpd defaults: %v", err)
-	}
-
-	tpd := DefaultTPD()
-	tpd.Enabled = true
-	if err := tpd.Validate(); err == nil {
-		t.Fatalf("tpd on without a licence key should fail")
-	}
-	tpd.LicenceKey = "k"
-	if err := tpd.Validate(); err != nil {
-		t.Fatalf("tpd with a licence key: %v", err)
-	}
-	tpd.UDPPort = "not-a-port"
-	if err := tpd.Validate(); err == nil {
-		t.Fatalf("bad udp port should fail")
-	}
-
 	// Triple-S defaults on, so its defaults alone are not a valid document:
 	// an enabled feed has to say where it connects.
 	tripleS := DefaultTripleS()

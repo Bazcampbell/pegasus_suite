@@ -103,7 +103,7 @@ func newFPRun(t *testing.T, code betmatic.RacingCode, distance int) *fpRun {
 	return &fpRun{
 		t:   t,
 		s:   NewForwardProgress(),
-		ref: core.RaceRef{Provider: core.ProviderTripleS, Key: "k", Scope: "AU/X", Code: code, Status: core.StatusRunning},
+		ref: core.RaceRef{Key: "k", Scope: "AU/X", Code: code, Status: core.StatusRunning},
 		get: func(core.RaceRef) *core.BetfairRace { return &core.BetfairRace{Distance: distance} },
 	}
 }
@@ -190,7 +190,7 @@ func BenchmarkForwardProgressTick(b *testing.B) {
 	start := field(rng, 12, t0, nil)
 	msg := field(rng, 12, t0.Add(time.Second), &start)
 	s := NewForwardProgress()
-	ref := core.RaceRef{Provider: core.ProviderTripleS, Key: "k", Code: betmatic.THOROUGHBRED, Status: core.StatusRunning}
+	ref := core.RaceRef{Key: "k", Code: betmatic.THOROUGHBRED, Status: core.StatusRunning}
 	get := func(core.RaceRef) *core.BetfairRace { return &core.BetfairRace{Distance: 1000} }
 	s.Select(start, ref, 1e12, 1e12, get)
 

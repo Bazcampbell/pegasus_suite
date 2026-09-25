@@ -38,7 +38,7 @@ func (d *Dispatcher) Place(b core.Bet, scope settings.ScopeSettings) {
 		Code:       b.Ref.Code,
 	}
 
-	if v, ok := core.BetmaticVenueFor(b.Ref.Provider, b.Ref.Venue); ok {
+	if v, ok := core.BetmaticVenueFor(b.Ref.Venue); ok {
 		ev.Betmatic = &v
 	}
 
