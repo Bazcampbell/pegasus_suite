@@ -261,6 +261,15 @@ Sessions, dedupe, prices, IDs, the ledger, logging and PnL all come for free. DA
 - **Day boundary:** AEST (`Australia/Brisbane`, no DST drift).
 - **Tote:** deferred.
 - **DAVO:** bets are placed immediately. No scheduled-order queue.
+- **Dedupe scope is per process** (being clarified, see chat). Claims are memory only, with no S3, and are cleared when the Betfair stream reports the market `CLOSED`. A claim stays if any leg is accepted and is freed if every leg fails. No admin override.
+- **Stream and catalogue:** one shared admin Betfair stream and catalogue, handed to every app.
+- **Report:**
+  - Turnover counts liability.
+  - "Attempted" counts individual provider bets.
+  - The report logs in with every user's credentials, even when that user has nothing running.
+  - Betmatic: most users share one account, so the report lists every notification and splits them by bot ID.
+  - One report per user, sent to the bets Telegram channel.
+- **Deploy:** a single EC2 instance. The runtime starts by itself on boot if it was running before.
 
 ## 13. Superseded open questions
 
