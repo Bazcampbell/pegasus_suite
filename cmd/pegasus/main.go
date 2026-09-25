@@ -122,7 +122,11 @@ func main() {
 	k.Register(pegasus.New())
 	k.Register(davo.New())
 
-	defer k.Stop()
+	defer k.Shutdown()
+
+	if err := k.Resume(); err != nil {
+		logger.Error(logger.Log{Message: fmt.Sprintf("runtime did not resume error=%v", err)})
+	}
 
 	report.Start(ctx, bucket, store, k)
 

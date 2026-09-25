@@ -62,4 +62,8 @@ type Store interface {
 	Processes(application string) ([]ProcessRef, error)
 	SetState(key ProcessKey, state State) error
 	Forget(key ProcessKey) error
+
+	// Runtime is what the whole runtime was last told to do, so a boot can resume it.
+	Runtime() (State, error)
+	SetRuntime(state State) error
 }

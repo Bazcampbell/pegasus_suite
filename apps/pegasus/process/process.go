@@ -157,14 +157,20 @@ func (p *Process) run(ctx context.Context) {
 			return
 
 		case msg := <-p.tripleS:
-			scope, ok := p.scopeFor(msg.ref)
-			if !ok {
-				continue
-			}
-			d, err := p.forwardProgress.Select(msg.m, msg.ref, scope.BetfairDelay, scope.BetmaticDelay, p.getBetfairRace)
-			p.act(msg.ref, scope, d, err)
+			p.handle(msg)
 		}
 	}
+}
+
+// handle runs one message through the strategy and places what it selects.
+func (p *Process) handle(msg tripleSMsg) {
+	defer logger.Recover(core.AppName)
+	scope, ok := p.scopeFor(msg.ref)
+	if !ok {
+		return
+	}
+	bets, err := p.forwardProgress.Select(msg.m, msg.ref, scope.BetfairDelay, scope.BetmaticDelay, p.getBetfairRace)
+	p.act(msg.ref, scope, bets, err)
 }
 
 func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {

@@ -174,10 +174,3 @@ func (e *Engine) allClaims() []*claims {
 	})
 	return out
 }
-
-// logPanic logs a panic instead of letting it crash the binary; call it deferred.
-func logPanic() {
-	if r := recover(); r != nil {
-		logger.Error(logger.Log{Message: fmt.Sprintf("recovered panic: %v", r)})
-	}
-}

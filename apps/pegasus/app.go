@@ -218,6 +218,7 @@ func (a *App) validateScopes(s *settings.ProcessSettings) error {
 
 // onTripleS offers a Triple-S message, with its venue named the Betmatic way, to every process in scope.
 func (a *App) onTripleS(m triples.RaceMessage) {
+	defer logger.Recover(Name)
 	ref, ok := m.Ref()
 	if !ok || ref.Scope == "" {
 		return

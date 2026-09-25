@@ -70,16 +70,50 @@ func (k *Kernel) HasApp(name string) bool {
 	return ok
 }
 
+// Start starts the runtime and records it as running, so a boot resumes it.
 func (k *Kernel) Start() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.startLocked()
+	if err := k.startLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateRunning)
+	return nil
 }
 
+// Stop stops the runtime and records it as stopped, so a boot leaves it stopped.
 func (k *Kernel) Stop() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.stopLocked()
+	if err := k.stopLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateStopped)
+	return nil
+}
+
+// Resume starts the runtime if it was running when the last process exited.
+func (k *Kernel) Resume() error {
+	state, err := k.store.Runtime()
+	if err != nil || state != clients.StateRunning {
+		return err
+	}
+	return k.Start()
+}
+
+// Shutdown stops the runtime for process exit without changing what the next boot resumes.
+func (k *Kernel) Shutdown() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.running.Load() {
+		_ = k.stopLocked()
+	}
+}
+
+func (k *Kernel) setRuntime(state clients.State) {
+	if err := k.store.SetRuntime(state); err != nil {
+		logger.Warn(logger.Log{Message: fmt.Sprintf("unable to persist runtime state error=%v", err)})
+	}
 }
 
 func (k *Kernel) Restart() error {
@@ -91,7 +125,11 @@ func (k *Kernel) Restart() error {
 			return err
 		}
 	}
-	return k.startLocked()
+	if err := k.startLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateRunning)
+	return nil
 }
 
 func (k *Kernel) Status() Status {

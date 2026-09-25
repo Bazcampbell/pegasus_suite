@@ -266,3 +266,32 @@ func TestListAndDeleteProcesses(t *testing.T) {
 		t.Fatalf("list after delete = %+v; want only b", list)
 	}
 }
+
+func TestResumeFollowsTheLastStartOrStop(t *testing.T) {
+	store := mem.New()
+	k := New(store)
+	k.Register(&fakeApp{})
+
+	if err := k.Resume(); err != nil || k.running.Load() {
+		t.Fatalf("a runtime never started resumed: err=%v", err)
+	}
+	if err := k.Start(); err != nil {
+		t.Fatal(err)
+	}
+	k.Shutdown()
+	if state, _ := store.Runtime(); state != clients.StateRunning {
+		t.Fatalf("shutdown changed the resume state to %q", state)
+	}
+
+	k = New(store)
+	k.Register(&fakeApp{})
+	if err := k.Resume(); err != nil || !k.running.Load() {
+		t.Fatalf("runtime did not resume: err=%v", err)
+	}
+	if err := k.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if state, _ := store.Runtime(); state != clients.StateStopped {
+		t.Fatalf("stop left the resume state %q", state)
+	}
+}

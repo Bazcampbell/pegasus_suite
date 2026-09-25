@@ -27,7 +27,7 @@ func (s skipped) Error() string { return string(s) }
 // Place sends o to its provider unless nothing is staked or the runner is a duplicate for this
 // user. It blocks for the provider's round trip, so callers run it on its own goroutine.
 func (e *Engine) Place(o Order) {
-	defer logPanic()
+	defer logger.Recover("engine")
 	if !o.staked() {
 		return
 	}

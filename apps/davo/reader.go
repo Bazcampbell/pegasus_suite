@@ -29,6 +29,7 @@ const (
 
 // onPost turns a channel post into a tip and offers it to every process; anything else arms the bookies.
 func (a *App) onPost(ctx context.Context, msg telegram.Message) {
+	defer logger.Recover(Name)
 	text := strings.TrimSpace(msg.Text)
 	if strings.HasPrefix(text, "/") {
 		return
