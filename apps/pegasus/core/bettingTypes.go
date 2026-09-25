@@ -4,13 +4,14 @@ package core
 
 import (
 	"pegasus_suite/betting/betfair"
+	"pegasus_suite/betting/betmatic"
 	"pegasus_suite/engine"
 )
 
 // The engine owns what a bet is; these aliases keep the strategies and the
 // venue tables speaking the same vocabulary without importing it everywhere.
 type (
-	BetmaticVenue = engine.BetmaticVenue
+	BetmaticVenue = betmatic.Venue
 	BetfairRace   = betfair.Race
 	Side          = engine.Side
 )

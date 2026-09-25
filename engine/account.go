@@ -51,7 +51,7 @@ type Credentials struct {
 // Placer is the one method the engine needs from a session. The concrete
 // clients satisfy it; tests substitute a recorder.
 type Placer interface {
-	PlaceBet(betting.BetRequest) error
+	PlaceBet(betting.BetRequest) (string, error)
 }
 
 // Account is what a process bets through: its sessions plus the account

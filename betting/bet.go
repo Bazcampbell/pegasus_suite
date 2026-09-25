@@ -7,48 +7,20 @@ import "time"
 type BetStatus string
 
 const (
-	BetPending  BetStatus = "PENDING"
-	BetWon      BetStatus = "WON"
-	BetLost     BetStatus = "LOST"
-	BetVoid     BetStatus = "VOID"
-	BetRejected BetStatus = "REJECTED"
-	BetLapsed   BetStatus = "LAPSED"
+	BetPending BetStatus = "PENDING"
+	BetWon     BetStatus = "WON"
+	BetLost    BetStatus = "LOST"
+	BetVoid    BetStatus = "VOID"
+	BetLapsed  BetStatus = "LAPSED"
 )
 
-// internal bet struct, per book
-type BookmakerBet struct {
-	ProviderID string // bf ref or betmatic notification ID
-	Bookmaker  string // book, bf, tote
-
-	Venue      string // betmatic venue
-	RaceNo     string
-	RunnerNo   string // de-dupe
-	RunnerName string
-
-	PlacedAt   time.Time
-	ResultedAt time.Time
-
+// Bet is one provider bet as the provider settled it.
+type Bet struct {
+	ID        string
+	Provider  Provider
 	Status    BetStatus
-	Requested float64
-	Accepted  float64
+	Stake     float64
 	Odds      float64
-	Return    float64
+	Profit    float64
+	SettledAt time.Time
 }
-
-// bet recap for an entire event
-type EventBetRecap struct {
-	Venue      string
-	RaceNo     string
-	RunnerNo   string
-	RunnerName string
-
-	Bets []BookmakerBet
-
-	Status         BetStatus
-	TotalRequested float64
-	TotalAccepted  float64
-	AvgOdds        float64
-	TotalReturn    float64
-}
-
-func (b BookmakerBet) Resulted() bool { return b.Status != BetPending }

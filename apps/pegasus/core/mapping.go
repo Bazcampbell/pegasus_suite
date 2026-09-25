@@ -3,6 +3,7 @@
 package core
 
 import (
+	"pegasus_suite/betting"
 	"pegasus_suite/betting/betfair"
 	"pegasus_suite/betting/betmatic"
 )
@@ -849,7 +850,7 @@ func ProviderFor(country string) (Provider, bool) {
 func BetfairTrackFor(provider Provider, venue string) (string, bool) {
 	switch provider {
 	case ProviderTripleS:
-		track, ok := TriplesToBetfair[betfair.NormaliseTrack(venue)]
+		track, ok := TriplesToBetfair[betting.NormaliseTrackKey(venue)]
 		return track, ok
 	case ProviderTPD:
 		track, ok := TPDToBetfair[venue]
@@ -861,7 +862,7 @@ func BetfairTrackFor(provider Provider, venue string) (string, bool) {
 func BetmaticVenueFor(provider Provider, venue string) (BetmaticVenue, bool) {
 	switch provider {
 	case ProviderTripleS:
-		v, ok := TriplesToBetmatic[betfair.NormaliseTrack(venue)]
+		v, ok := TriplesToBetmatic[betting.NormaliseTrackKey(venue)]
 		return v, ok
 	case ProviderTPD:
 		// Keyed by the TPD course code, the same as TPDToBetfair — not by the
@@ -901,6 +902,6 @@ var betfairToBetmatic = func() map[string]string {
 
 // BetmaticNameForBetfair returns the canonical name for a betfair track.
 func BetmaticNameForBetfair(track string) (string, bool) {
-	name, ok := betfairToBetmatic[betfair.NormaliseTrack(track)]
+	name, ok := betfairToBetmatic[betting.NormaliseTrackKey(track)]
 	return name, ok
 }

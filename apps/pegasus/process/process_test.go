@@ -19,9 +19,9 @@ import (
 // recorder stands in for a bookmaker session.
 type recorder struct{ placed chan betting.BetRequest }
 
-func (r *recorder) PlaceBet(req betting.BetRequest) error {
+func (r *recorder) PlaceBet(req betting.BetRequest) (string, error) {
 	r.placed <- req
-	return nil
+	return "", nil
 }
 
 // A process is the whole of the decision path with no kernel, no feed socket

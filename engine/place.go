@@ -96,7 +96,7 @@ func (e *Engine) placeBetmatic(o Order) {
 		RaceDetails:      o.race(),
 	})
 
-	if err := a.betmatic.PlaceBet(n); err != nil {
+	if _, err := a.betmatic.PlaceBet(n); err != nil {
 		logger.Error(logger.Log{
 			Application:      a.App,
 			FormattedMessage: fmt.Sprintf("betmatic bet rejected error=%v", err), UserID: a.UserID, ProcessID: a.ProcessID, Request: n, RaceDetails: o.race(),
@@ -220,7 +220,7 @@ func (e *Engine) placeBetfair(o Order) {
 		RaceDetails:      o.race(),
 	})
 
-	if err := a.betfair.PlaceBet(req); err != nil {
+	if _, err := a.betfair.PlaceBet(req); err != nil {
 		logger.Error(logger.Log{
 			Application:      a.App,
 			FormattedMessage: fmt.Sprintf("betfair %v rejected error=%v", o.Side, err), UserID: a.UserID, ProcessID: a.ProcessID, Request: req, RaceDetails: o.race(),

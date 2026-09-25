@@ -52,8 +52,8 @@ func parseSide(s string) (exchange.Side, error) {
 
 func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error) {
 	if bsp, ok := request.(BSPBetRequest); ok {
-		_, err := bc.PlaceBSPBet(bsp)
-		return "", err
+		res, err := bc.PlaceBSPBet(bsp)
+		return res.BetID, err
 	}
 
 	req, ok := request.(BetRequest)
@@ -74,7 +74,7 @@ func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error)
 	// The exchange reports a rejected order in the body with a 200; PlaceOrders
 	// turns that into an *exchange.ExecutionError, so err covers both it and a
 	// transport failure.
-	placeExecutionReport, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
+	report, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
 		MarketID:            req.MarketID,
 		CustomerRef:         req.CustomerRef,
 		CustomerStrategyRef: req.CustomerStrategyRef,
@@ -87,5 +87,11 @@ func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error)
 			CustomerOrderRef: req.OrderRef,
 		}},
 	})
-	return placeExecutionReport.InstructionReports, nil
+	if err != nil {
+		return "", err
+	}
+	if len(report.InstructionReports) == 0 {
+		return "", errors.New("betfair returned no instruction report")
+	}
+	return report.InstructionReports[0].BetID, nil
 }
