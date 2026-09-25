@@ -3,11 +3,11 @@
 package engine
 
 import (
-	"pegasus_suite/apps/davo/tenant"
 	"fmt"
+	"pegasus_suite/apps/davo/tenant"
 
-	"pegasus_suite/betting"
 	betengine "github.com/Bazcampbell/bazbet-sdk/engine"
+	"pegasus_suite/betting"
 	logger "pegasus_suite/logger"
 )
 

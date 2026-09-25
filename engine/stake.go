@@ -4,55 +4,18 @@ package engine
 
 import "math"
 
-func GetLiability(isMetro, isHorse bool, WMBL, PMBL bool, WLia, PLia float64) (float64, float64) {
-	var winLia float64
-	var placeLia float64
-
-	if WLia == 0 && !WMBL {
-		winLia = 0
-	} else {
-		if WMBL {
-			if isMetro {
-				if isHorse {
-					winLia = 2000
-				} else {
-					winLia = 1000
-				}
-			} else {
-				if isHorse {
-					winLia = 1000
-				} else {
-					winLia = 500
-				}
-			}
-		} else {
-			winLia = WLia
-		}
+// maxBetLiability returns the MBL target for a track: metro over provincial, thoroughbred over harness.
+func maxBetLiability(metro, thoroughbred bool) float64 {
+	switch {
+	case metro && thoroughbred:
+		return 2000
+	case metro:
+		return 1000
+	case thoroughbred:
+		return 1000
+	default:
+		return 500
 	}
-
-	if PLia == 0 && !PMBL {
-		placeLia = 0
-	} else {
-		if PMBL {
-			if isMetro {
-				if isHorse {
-					placeLia = 800
-				} else {
-					placeLia = 400
-				}
-			} else {
-				if isHorse {
-					placeLia = 400
-				} else {
-					placeLia = 200
-				}
-			}
-		} else {
-			placeLia = PLia
-		}
-	}
-
-	return winLia, placeLia
 }
 
 var betfairTickLadder = [...]struct{ limit, step int }{

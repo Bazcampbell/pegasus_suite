@@ -31,7 +31,7 @@ func TestProcessIgnoresOtherScopes(t *testing.T) {
 			Stake: engine.Stake{Betmatic: engine.BetmaticStake{WinStake: 5}}, BetmaticDelay: 500,
 		}},
 	}
-	p := process.New(s, dispatch.New(nil, engine.TestAccount("u1", "p1", nil, nil), s, nil), nil, nil, nil)
+	p := process.New(s, dispatch.New(nil, engine.TestAccount("pegasus", "u1", "p1", nil, nil), nil), nil, nil)
 
 	if p.Running() {
 		t.Error("a new process must start stopped")
@@ -72,10 +72,10 @@ func TestForwardProgressBetsThroughToBetmatic(t *testing.T) {
 
 	bm := &recorder{placed: make(chan betting.BetRequest, 1)}
 	getRace := func(core.RaceRef) *core.BetfairRace { return &core.BetfairRace{Distance: 1000} }
-	account := engine.TestAccount("u1", "p1", bm, nil)
+	account := engine.TestAccount("pegasus", "u1", "p1", bm, nil)
 	account.BotID = "bot-1"
 	account.Bookmakers = []string{"3", "7"}
-	p := process.New(s, dispatch.New(engine.New(ctx), account, s, nil), getRace, nil, nil)
+	p := process.New(s, dispatch.New(engine.New(ctx), account, getRace), getRace, nil)
 	p.Start()
 	defer p.Stop()
 
@@ -124,8 +124,8 @@ func TestForwardProgressBetsThroughToBetmatic(t *testing.T) {
 	if n.Selection != 3 {
 		t.Errorf("selection = %d, want the runner that moved furthest (3)", n.Selection)
 	}
-	if n.EventNumber != 4 || n.Label != "pegasus_p1" {
-		t.Errorf("event %d label %q", n.EventNumber, n.Label)
+	if n.EventNumber != 4 || n.Label != "PEGASUS" || n.Competition != "TOWNSVILLE" {
+		t.Errorf("event %d label %q competition %q", n.EventNumber, n.Label, n.Competition)
 	}
 	if n.TargetBot != "bot-1" || n.BookiesOverride != "3,7" {
 		t.Errorf("account fields not carried: bot=%q bookies=%q", n.TargetBot, n.BookiesOverride)

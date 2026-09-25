@@ -4,11 +4,11 @@ package tenant
 
 import (
 	"context"
-	"pegasus_suite/apps/davo/core"
-	"pegasus_suite/apps/davo/store"
 	"errors"
 	"fmt"
 	"net/mail"
+	"pegasus_suite/apps/davo/core"
+	"pegasus_suite/apps/davo/store"
 	"strings"
 	"sync"
 

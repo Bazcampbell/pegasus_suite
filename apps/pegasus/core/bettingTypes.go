@@ -29,11 +29,3 @@ type Bet struct {
 	Runner int
 	Unit   float64
 }
-
-// strategy response
-type Decision struct {
-	Bets []Bet
-
-	// used for BF price poll
-	Tracking bool
-}

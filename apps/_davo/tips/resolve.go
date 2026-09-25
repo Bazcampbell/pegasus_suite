@@ -3,9 +3,9 @@
 package betting
 
 import (
-	"pegasus_suite/apps/davo/util"
 	"errors"
 	"fmt"
+	"pegasus_suite/apps/davo/util"
 	"pegasus_suite/betting/betmatic"
 	logger "pegasus_suite/logger"
 	"sort"

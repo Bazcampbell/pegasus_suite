@@ -34,6 +34,7 @@ func (m RaceMessage) Ref() (core.RaceRef, bool) {
 		// numbers again tomorrow, and strategy state is keyed on this.
 		Key:        fmt.Sprintf("triple-s/%s/%s/%d", m.EventDate, m.Venue.Name, m.RaceNumber),
 		Scope:      core.ScopeKey(country, code),
+		Date:       m.EventDate,
 		Venue:      m.Venue.Name,
 		VenueName:  m.Venue.Name,
 		Country:    country,

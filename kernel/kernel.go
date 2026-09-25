@@ -8,6 +8,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -117,6 +118,9 @@ func (k *Kernel) startLocked() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	k.cancel = cancel
 	k.eng = engine.New(ctx)
+	if err := k.startBetfair(); err != nil {
+		logger.Error(logger.Log{Message: fmt.Sprintf("admin betfair not started; no race catalogue or prices error=%v", err)})
+	}
 
 	h := &host{k: k}
 	errs := make(map[string]string)
@@ -179,6 +183,21 @@ func (k *Kernel) stopLocked() error {
 
 	logger.Info(logger.Log{Message: "runtime stopped"})
 	return nil
+}
+
+// startBetfair starts the engine's catalogue and price stream on the shared admin Betfair account.
+func (k *Kernel) startBetfair() error {
+	doc, err := k.store.AppSettings("betfair")
+	if err != nil {
+		return err
+	}
+	var creds engine.BetfairCredentials
+	if len(doc) > 0 {
+		if err := json.Unmarshal(doc, &creds); err != nil {
+			return err
+		}
+	}
+	return k.eng.StartBetfair(creds)
 }
 
 func (k *Kernel) fail(err error) error {

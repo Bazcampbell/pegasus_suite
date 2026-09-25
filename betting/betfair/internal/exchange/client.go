@@ -30,13 +30,14 @@ type Client struct {
 
 	Username string
 	password string
+	appKey   string
 
 	authOptions    *goreq.Options
 	bettingOptions *goreq.Options
 }
 
 func New(username, password, appKey, cert string) (*Client, error) {
-	c := &Client{Username: username, password: password}
+	c := &Client{Username: username, password: password, appKey: appKey}
 
 	pem := []byte(cert)
 	keyPair, err := tls.X509KeyPair(pem, pem)

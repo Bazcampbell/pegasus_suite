@@ -1,18 +1,11 @@
 // engine/place.go
-//
-// Order → provider request → bookmaker. Runs on the caller's goroutine; the
-// process spawns one per bet so no bookmaker holds up the next message.
-//
-// Nothing here looks anything up: the account, the venue names, the live
-// Betfair book and the stake all arrive on the Order. The only work is
-// arithmetic and one network call.
 
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"math"
-	"strconv"
 	"strings"
 
 	"pegasus_suite/betting/betfair"
@@ -20,62 +13,73 @@ import (
 	"pegasus_suite/logger"
 )
 
-const maxBetfairCustomerRef = 32
+const (
+	maxOrderRef    = 32
+	maxStrategyRef = 15
+)
 
+// skipped is a bet the engine chose not to send; it is not a failure.
+type skipped string
+
+func (s skipped) Error() string { return string(s) }
+
+// Place sends o to its provider unless nothing is staked or the runner is a duplicate for this
+// user. It blocks for the provider's round trip, so callers run it on its own goroutine.
 func (e *Engine) Place(o Order) {
-	switch o.Side {
-	case BetmaticWin:
-		if o.Stake.BetsBetmatic() {
-			e.placeBetmatic(o)
-		}
-	case BetfairBack:
-		if o.Stake.Betfair.BackStake > 0 {
-			e.placeBetfair(o)
-		}
-	case BetfairLay:
-		if o.Stake.Betfair.LayStake > 0 {
-			e.placeBetfair(o)
-		}
+	defer logPanic()
+	if !o.staked() {
+		return
 	}
-}
 
-func (o Order) race() *logger.Race {
-	return &logger.Race{Venue: o.Event.VenueName, Number: o.Event.RaceNumber, Runner: o.Runner}
-}
-
-func (e *Engine) placeBetmatic(o Order) {
 	a := o.Account
-	if !a.HasBetmatic() {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: "scope stakes betmatic but the process has no betmatic session", UserID: a.UserID, ProcessID: a.ProcessID, Race: o.race(),
-		})
+	id := o.BetID()
+	provider := o.Side.provider()
+	if !a.claims.take(a, id, o.Race.MarketID, provider) {
+		logger.Debug(logger.Log{App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(), Message: fmt.Sprintf("duplicate %v blocked bet_id=%s", o.Side, id)})
 		return
 	}
 
-	venue := o.Event.Betmatic
-	if venue == nil {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("no betmatic venue for %s; cannot bet", o.Event.VenueName), UserID: a.UserID, ProcessID: a.ProcessID, Race: o.race(),
-		})
+	var err error
+	if o.Side == BetmaticWin {
+		err = e.placeBetmatic(o, id)
+	} else {
+		err = e.placeBetfair(o, id)
+	}
+	if err == nil {
 		return
 	}
 
-	// MBL bets the bookmaker maximum rather than targeting a liability, and that
-	// maximum depends on the track. GetLiability owns the table.
+	a.claims.release(a, id, provider)
+	l := logger.Log{App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(), Message: fmt.Sprintf("%v not placed bet_id=%s: %v", o.Side, id, err)}
+	if errors.As(err, new(skipped)) {
+		logger.Debug(l)
+		return
+	}
+	logger.Error(l)
+}
+
+func (o Order) logRace() *logger.Race {
+	return &logger.Race{Venue: o.Race.Venue, Number: o.Race.Number, Runner: o.Runner}
+}
+
+func (e *Engine) placeBetmatic(o Order, id string) error {
+	a := o.Account
+	if a.betmatic == nil {
+		return errors.New("process has no betmatic session")
+	}
+
 	st := o.Stake.Betmatic
-	lia := st.WinStake
+	target := st.WinStake
 	if st.WinMBL {
-		lia, _ = GetLiability(venue.IsMetro, true, true, false, 0, 0)
+		target = maxBetLiability(o.Race.Metro, o.Race.Code == betmatic.THOROUGHBRED)
 	}
 
-	n := betmatic.NotificationRequest{
+	req := betmatic.NotificationRequest{
 		Type:            betmatic.FIXED_PROFIT,
 		Sports:          "RACING",
-		Competition:     strings.ToUpper(venue.Name),
-		Code:            o.Event.Code,
-		EventNumber:     o.Event.RaceNumber,
+		Competition:     strings.ToUpper(o.Race.Venue),
+		Code:            o.Race.Code,
+		EventNumber:     o.Race.Number,
 		Market:          betmatic.FIXED_WIN,
 		CheckMaxOdds:    true,
 		CheckOdds:       true,
@@ -83,159 +87,100 @@ func (e *Engine) placeBetmatic(o Order) {
 		MinOdds:         float32(st.MinOdds),
 		Selection:       o.Runner,
 		BookiesOverride: strings.Join(a.Bookmakers, ","),
-		TargetProfit:    lia * o.Unit,
+		TargetProfit:    target * o.Unit,
 		TargetBot:       a.BotID,
-		Label:           o.Label,
+		Label:           strings.ToUpper(a.App),
 	}
 
-	logger.Debug(logger.Log{
-		App:       a.App,
-		Message:   fmt.Sprintf("placing betmatic bet venue=%v runner=%v target_profit=%.2f (lia %.2f x unit %.2f) mbl=%v odds=%.2f-%.2f", n.Competition, o.Runner, n.TargetProfit, lia, o.Unit, st.WinMBL, st.MinOdds, st.MaxOdds),
-		UserID:    a.UserID,
-		ProcessID: a.ProcessID,
-		Race:      o.race(),
-	})
-
-	if _, err := a.betmatic.PlaceBet(n); err != nil {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("betmatic bet rejected error=%v", err), UserID: a.UserID, ProcessID: a.ProcessID, Request: n, Race: o.race(),
-		})
-		return
+	notificationID, err := a.betmatic.PlaceBet(req)
+	if err != nil {
+		return err
 	}
 
-	// Betmatic sizes and fills the notification itself, so this is a request,
-	// not a bet.
-	logger.Info(logger.Log{
-		App:       a.App,
-		Message:   fmt.Sprintf("betmatic bet requested %s R%d runner %d %s target $%.2f", n.Competition, n.EventNumber, n.Selection, n.Type, n.TargetProfit),
-		UserID:    a.UserID,
-		ProcessID: a.ProcessID,
-		Race:      o.race(),
+	logger.Bet(logger.BetLog{
+		App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(),
+		Message:  "betmatic notification created id=" + notificationID,
+		BetID:    id,
+		Provider: "betmatic",
+		BetType:  string(req.Type),
+		Target:   req.TargetProfit,
 	})
+	return nil
 }
 
-func (e *Engine) placeBetfair(o Order) {
+func (e *Engine) placeBetfair(o Order, id string) error {
 	a := o.Account
-	if !a.HasBetfair() {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: "scope stakes betfair but the process has no betfair session", UserID: a.UserID, ProcessID: a.ProcessID, Race: o.race(),
-		})
-		return
+	if a.betfair == nil {
+		return errors.New("process has no betfair session")
 	}
-
-	race := o.Event.Betfair
-	if race == nil {
-		logger.Warn(logger.Log{Message: "unable to resolve betfair race", Race: o.race()})
-		return
+	admin := e.adminClient()
+	if admin == nil {
+		return errors.New("no admin betfair account for prices")
 	}
-
-	runner, ok := race.Runners[o.Runner]
+	if o.Race.MarketID == "" || o.SelectionID == 0 {
+		return skipped("no betfair market for runner")
+	}
+	prices, ok := admin.Runner(o.Race.MarketID, o.SelectionID)
 	if !ok {
-		logger.Warn(logger.Log{Message: "unable to get betfair runner from race", Response: race.Runners, Race: o.race()})
-		return
-	}
-
-	selectionID, err := strconv.ParseInt(runner.SelectionID, 10, 64)
-	if err != nil {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("unusable betfair selection id error=%v", err), UserID: a.UserID, ProcessID: a.ProcessID, Request: runner, Race: o.race(),
-		})
-		return
+		return skipped("no betfair prices for runner")
 	}
 
 	st := o.Stake.Betfair
-
-	// updateRunners writes the back book best-first and sorts the lay book
-	// ascending, so [0] is the best available price on either side.
-	book := runner.Back
+	best := prices.Back[0].Price
 	if o.Side == BetfairLay {
-		book = runner.Lay
+		best = prices.Lay[0].Price
 	}
-
-	if len(book) == 0 || book[0].Price < 1.01 {
-		logger.Warn(logger.Log{Message: fmt.Sprintf("no %v price for betfair runner", o.Side), Request: runner, Race: o.race()})
-		return
-	}
-
-	price := book[0].Price
-
-	if price < st.MinOdds || (st.MaxOdds > 0 && price > st.MaxOdds) {
-		logger.Debug(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("betfair %v price %.2f outside %.2f-%.2f, skipping", o.Side, price, st.MinOdds, st.MaxOdds), UserID: a.UserID, ProcessID: a.ProcessID, Race: o.race(),
-		})
-		return
-	}
-
-	if runner.LTP < st.MinOdds {
-		logger.Debug(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("betfair last traded %.2f under min odds %.2f, skipping", runner.LTP, st.MinOdds), UserID: a.UserID, ProcessID: a.ProcessID, Race: o.race(),
-		})
-		return
+	switch {
+	case best < 1.01:
+		return skipped(fmt.Sprintf("no %v price", o.Side))
+	case best < st.MinOdds || (st.MaxOdds > 0 && best > st.MaxOdds):
+		return skipped(fmt.Sprintf("price %.2f outside %.2f-%.2f", best, st.MinOdds, st.MaxOdds))
+	case prices.LTP < st.MinOdds:
+		return skipped(fmt.Sprintf("last traded %.2f under min odds %.2f", prices.LTP, st.MinOdds))
 	}
 
 	req := betfair.BSPBetRequest{
-		MarketID:    runner.MarketID,
-		SelectionID: selectionID,
-		CustomerRef: o.Label,
+		MarketID:    o.Race.MarketID,
+		SelectionID: o.SelectionID,
+		OrderRef:    id[max(0, len(id)-maxOrderRef):],
+		StrategyRef: a.App[:min(len(a.App), maxStrategyRef)],
 	}
-	if len(req.CustomerRef) > maxBetfairCustomerRef {
-		req.CustomerRef = req.CustomerRef[:maxBetfairCustomerRef]
-	}
-
 	if o.Side == BetfairLay {
-		limit := CeilToBetfairTick(price * 1.1)
+		// a lay's limit is the most it will lay at: 10% above the best lay, capped at max odds
+		limit := CeilToBetfairTick(best * 1.1)
 		if st.MaxOdds > 0 && limit > st.MaxOdds {
 			limit = FloorToBetfairTick(st.MaxOdds)
 		}
-		if limit == 0 || limit < price {
-			logger.Debug(logger.Log{Message: fmt.Sprintf("betfair lay limit %.2f under lay price %.2f, skipping", limit, price), Race: o.race()})
-			return
+		if limit == 0 || limit < best {
+			return skipped(fmt.Sprintf("lay limit %.2f under lay price %.2f", limit, best))
 		}
-
 		req.Side = betfair.SideLay
 		req.LimitPrice = limit
 		req.Liability = math.Round(st.LayStake * o.Unit)
 	} else {
-		limit := FloorToBetfairTick(price * 0.9)
+		// a back's limit is the least it will take: 10% below the best back, at least min odds
+		limit := FloorToBetfairTick(best * 0.9)
 		if limit == 0 || limit < st.MinOdds {
-			logger.Debug(logger.Log{Message: fmt.Sprintf("betfair limit %.2f under min odds %.2f, skipping", limit, st.MinOdds), Race: o.race()})
-			return
+			return skipped(fmt.Sprintf("back limit %.2f under min odds %.2f", limit, st.MinOdds))
 		}
-
 		req.Side = betfair.SideBack
 		req.LimitPrice = limit
-		req.Liability = math.Max(1, math.Round(st.BackStake*o.Unit/(price-1)*100)/100)
+		req.Liability = math.Max(1, math.Round(st.BackStake*o.Unit/(best-1)*100)/100)
 	}
 
-	logger.Debug(logger.Log{
-		App:       a.App,
-		Message:   fmt.Sprintf("placing betfair %v runner=%v market=%v best=%.2f limit=%.2f ltp=%.2f size=%.2f", o.Side, o.Runner, req.MarketID, price, req.LimitPrice, runner.LTP, req.Liability),
-		UserID:    a.UserID,
-		ProcessID: a.ProcessID,
-		Race:      o.race(),
-	})
-
-	if _, err := a.betfair.PlaceBet(req); err != nil {
-		logger.Error(logger.Log{
-			App:     a.App,
-			Message: fmt.Sprintf("betfair %v rejected error=%v", o.Side, err), UserID: a.UserID, ProcessID: a.ProcessID, Request: req, Race: o.race(),
-		})
-		return
+	betID, err := a.betfair.PlaceBet(req)
+	if err != nil {
+		return err
 	}
 
-	// An INFO, not a BET: the order sits PENDING until the market turns in-play
-	// and the SP is struck, so neither the price nor the stake actually on is
-	// knowable here.
-	logger.Info(logger.Log{
-		App:       a.App,
-		Message:   fmt.Sprintf("betfair bsp bet accepted market=%s selection=%d %s liability $%.2f ref=%s", req.MarketID, req.SelectionID, strings.ToUpper(req.Side), req.Liability, req.CustomerRef),
-		UserID:    a.UserID,
-		ProcessID: a.ProcessID,
-		Race:      o.race(),
+	logger.Bet(logger.BetLog{
+		App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(),
+		Message:  fmt.Sprintf("betfair bsp accepted bet=%s limit=%.2f ltp=%.2f", betID, req.LimitPrice, prices.LTP),
+		BetID:    id,
+		Provider: "betfair",
+		BetType:  req.Side,
+		Stake:    req.Liability,
+		Odds:     best,
 	})
+	return nil
 }

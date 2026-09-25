@@ -4,13 +4,13 @@ package tenant
 
 import (
 	"context"
-	"pegasus_suite/apps/davo/core"
 	"fmt"
 	"log/slog"
+	"pegasus_suite/apps/davo/core"
 	"strings"
 
-	"pegasus_suite/betting/betmatic"
 	betengine "github.com/Bazcampbell/bazbet-sdk/engine"
+	"pegasus_suite/betting/betmatic"
 	logger "pegasus_suite/logger"
 )
 
@@ -76,10 +76,10 @@ func (p *Process) handleBetmaticSelection(message core.DavoRaceMessage) {
 	}
 
 	race := &logger.Race{
-		Venue:        message.Venue,
-		Number:   message.RaceNumber,
-		Runner: message.RunnerNumber,
-		RunnerName:   message.RunnerName,
+		Venue:      message.Venue,
+		Number:     message.RaceNumber,
+		Runner:     message.RunnerNumber,
+		RunnerName: message.RunnerName,
 	}
 
 	if err := betengine.PlaceBetmaticBet(p.Settings.BetmaticEmail, p.Settings.ID, notification, meta); err != nil {

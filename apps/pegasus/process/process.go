@@ -36,7 +36,6 @@ type Process struct {
 
 	dispatcher     *dispatch.Dispatcher
 	getBetfairRace func(core.RaceRef) *core.BetfairRace
-	setPriceFeed   func(core.RaceRef, bool)
 	onClose        func()
 
 	running atomic.Bool
@@ -53,7 +52,7 @@ type Process struct {
 	seenRaces map[string]bool
 }
 
-func New(s settings.ProcessSettings, d *dispatch.Dispatcher, getBetfairRace func(core.RaceRef) *core.BetfairRace, setPriceFeed func(core.RaceRef, bool), onClose func()) *Process {
+func New(s settings.ProcessSettings, d *dispatch.Dispatcher, getBetfairRace func(core.RaceRef) *core.BetfairRace, onClose func()) *Process {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // start stopped
 
@@ -62,7 +61,6 @@ func New(s settings.ProcessSettings, d *dispatch.Dispatcher, getBetfairRace func
 		tripleS:         make(chan tripleSMsg, inboxSize),
 		dispatcher:      d,
 		getBetfairRace:  getBetfairRace,
-		setPriceFeed:    setPriceFeed,
 		onClose:         onClose,
 		forwardProgress: strategy.NewForwardProgress(),
 		seenRaces:       make(map[string]bool),
@@ -99,7 +97,7 @@ func (p *Process) inboxFull(ref core.RaceRef) {
 		Message:   "race inbox full",
 		UserID:    p.Settings.UserID,
 		ProcessID: p.Settings.ID,
-		Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+		Race:      ref.LogRace(),
 	})
 }
 
@@ -186,44 +184,39 @@ func (p *Process) scopeFor(ref core.RaceRef) (settings.ScopeSettings, bool) {
 			Message:   fmt.Sprintf("race in scope=%v status=%v bm_stake=%.2f bm_mbl=%v bm_delay=%v bf_back=%.2f bf_lay=%.2f bf_delay=%v", ref.Scope, ref.Status, scope.Betmatic.WinStake, scope.Betmatic.WinMBL, scope.BetmaticDelay, scope.Betfair.BackStake, scope.Betfair.LayStake, scope.BetfairDelay),
 			UserID:    p.Settings.UserID,
 			ProcessID: p.Settings.ID,
-			Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:      ref.LogRace(),
 		})
 	}
 	return scope, true
 }
 
-// act hands a strategy's decision on. Every bet goes out on its own goroutine
+// act hands a strategy's bets on. Every bet goes out on its own goroutine
 // so no bookmaker can hold up the next message.
-func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, decision core.Decision, err error) {
+func (p *Process) act(ref core.RaceRef, scope settings.ScopeSettings, bets []core.Bet, err error) {
 	if err != nil {
 		logger.Error(logger.Log{
 			App:       core.AppName,
 			Message:   fmt.Sprintf("unable to make selections error=%v", err),
 			UserID:    p.Settings.UserID,
 			ProcessID: p.Settings.ID,
-			Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:      ref.LogRace(),
 		})
 		return
 	}
 
-	// nil when the process has no betfair account, so there are no prices to poll
-	if p.setPriceFeed != nil {
-		p.setPriceFeed(ref, decision.Tracking)
-	}
-
-	if len(decision.Bets) == 0 {
+	if len(bets) == 0 {
 		return
 	}
 
 	logger.Debug(logger.Log{
 		App:       core.AppName,
-		Message:   fmt.Sprintf("selections made bets=%+v", decision.Bets),
+		Message:   fmt.Sprintf("selections made bets=%+v", bets),
 		UserID:    p.Settings.UserID,
 		ProcessID: p.Settings.ID,
-		Race:      &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+		Race:      ref.LogRace(),
 	})
 
-	for _, b := range decision.Bets {
+	for _, b := range bets {
 		go p.dispatcher.Place(b, scope)
 	}
 }

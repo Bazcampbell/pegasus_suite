@@ -6,57 +6,39 @@ import (
 	"errors"
 	"fmt"
 
-	"pegasus_suite/betting/betfair/internal/exchange"
-
 	"pegasus_suite/betting"
+	"pegasus_suite/betting/betfair/internal/exchange"
 )
 
-func (r BetRequest) Provider() betting.Provider { return betting.ProviderBetfair }
+const (
+	SideBack = string(exchange.SideBack)
+	SideLay  = string(exchange.SideLay)
+)
 
-func (r BetRequest) Validate() error {
+func (r BSPBetRequest) Provider() betting.Provider { return betting.ProviderBetfair }
+
+func (r BSPBetRequest) Validate() error {
 	if r.MarketID == "" {
-		return fmt.Errorf("market_id is required")
+		return errors.New("market_id is required")
 	}
 	if r.SelectionID <= 0 {
-		return fmt.Errorf("selection_id must be positive")
+		return errors.New("selection_id must be positive")
 	}
-	if _, err := parseSide(r.Side); err != nil {
-		return err
+	if r.Side != SideBack && r.Side != SideLay {
+		return fmt.Errorf("side must be %q or %q, got %q", SideBack, SideLay, r.Side)
 	}
-
-	if r.Price < 1.01 {
-		return errors.New("price must be at least 1.01")
+	if r.Liability <= 0 {
+		return errors.New("liability must be positive")
 	}
-	if r.Size <= 0 {
-		return errors.New("size must be positive")
+	if r.LimitPrice != 0 && r.LimitPrice < 1.01 {
+		return errors.New("limit_price must be at least 1.01")
 	}
 	return nil
 }
 
-func (r BetRequest) Liability() float64 {
-	if side, err := parseSide(r.Side); err == nil && side == exchange.SideLay {
-		return r.Size * (r.Price - 1)
-	}
-	return r.Size
-}
-
-func parseSide(s string) (exchange.Side, error) {
-	switch exchange.Side(s) {
-	case exchange.SideBack:
-		return exchange.SideBack, nil
-	case exchange.SideLay:
-		return exchange.SideLay, nil
-	}
-	return "", fmt.Errorf("side must be %q or %q, got %q", exchange.SideBack, exchange.SideLay, s)
-}
-
-func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error) {
-	if bsp, ok := request.(BSPBetRequest); ok {
-		res, err := bc.PlaceBSPBet(bsp)
-		return res.BetID, err
-	}
-
-	req, ok := request.(BetRequest)
+// PlaceBet places a BSP bet (limit-on-close when LimitPrice is set) and returns its bet ID.
+func (bc *Client) PlaceBet(request betting.BetRequest) (string, error) {
+	req, ok := request.(BSPBetRequest)
 	if !ok {
 		return "", betting.ErrWrongProvider
 	}
@@ -64,28 +46,23 @@ func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error)
 		return "", err
 	}
 
-	side, _ := parseSide(req.Side)
-
-	limit := &exchange.LimitOrder{Size: req.Size, Price: req.Price}
-	if req.PersistenceType != "" {
-		limit.PersistenceType = exchange.PersistenceType(req.PersistenceType)
+	instruction := exchange.PlaceInstruction{
+		OrderType:          exchange.OrderTypeMarketOnClose,
+		SelectionID:        req.SelectionID,
+		Side:               exchange.Side(req.Side),
+		CustomerOrderRef:   req.OrderRef,
+		MarketOnCloseOrder: &exchange.MarketOnCloseOrder{Liability: req.Liability},
+	}
+	if req.LimitPrice != 0 {
+		instruction.OrderType = exchange.OrderTypeLimitOnClose
+		instruction.MarketOnCloseOrder = nil
+		instruction.LimitOnCloseOrder = &exchange.LimitOnCloseOrder{Liability: req.Liability, Price: req.LimitPrice}
 	}
 
-	// The exchange reports a rejected order in the body with a 200; PlaceOrders
-	// turns that into an *exchange.ExecutionError, so err covers both it and a
-	// transport failure.
 	report, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
 		MarketID:            req.MarketID,
-		CustomerRef:         req.CustomerRef,
-		CustomerStrategyRef: req.CustomerStrategyRef,
-		Instructions: []exchange.PlaceInstruction{{
-			OrderType:        exchange.OrderTypeLimit,
-			SelectionID:      req.SelectionID,
-			Side:             side,
-			Handicap:         req.Handicap,
-			LimitOrder:       limit,
-			CustomerOrderRef: req.OrderRef,
-		}},
+		CustomerStrategyRef: req.StrategyRef,
+		Instructions:        []exchange.PlaceInstruction{instruction},
 	})
 	if err != nil {
 		return "", err
@@ -95,3 +72,5 @@ func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error)
 	}
 	return report.InstructionReports[0].BetID, nil
 }
+
+var _ betting.BetRequest = BSPBetRequest{}

@@ -147,9 +147,10 @@ type ListEventsResponse struct {
 }
 
 type MarketCatalogue struct {
-	MarketID   string            `json:"marketId"`
-	MarketName string            `json:"marketName"`
-	Runners    []CatalogueRunner `json:"runners"`
+	MarketID        string            `json:"marketId"`
+	MarketName      string            `json:"marketName"`
+	MarketStartTime time.Time         `json:"marketStartTime"`
+	Runners         []CatalogueRunner `json:"runners"`
 }
 
 type CatalogueRunner struct {

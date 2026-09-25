@@ -4,11 +4,11 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"pegasus_suite/apps/davo/anthropic"
-	"pegasus_suite/apps/davo/tips"
 	"pegasus_suite/apps/davo/core"
 	"pegasus_suite/apps/davo/telegram"
-	"fmt"
+	"pegasus_suite/apps/davo/tips"
 	"strings"
 	"time"
 
@@ -123,10 +123,10 @@ func (e *Engine) onScrape(ctx context.Context, msg telegram.Message) {
 	logger.Debug(logger.InfoLog{
 		Message: fmt.Sprintf("fanning out selection units=%v market=%v rated_odds=%v name_match=%.0f%%", msgOut.UnitSize, msgOut.Market, msgOut.RatedOdds, match.Score*100),
 		RaceDetails: &logger.Race{
-			Venue:        msgOut.Venue,
-			Number:   msgOut.RaceNumber,
-			Runner: msgOut.RunnerNumber,
-			RunnerName:   msgOut.RunnerName,
+			Venue:      msgOut.Venue,
+			Number:     msgOut.RaceNumber,
+			Runner:     msgOut.RunnerNumber,
+			RunnerName: msgOut.RunnerName,
 		},
 	})
 	logger.Info(logger.InfoLog{Message: "Mr Sean Combs approves of the above bet."})

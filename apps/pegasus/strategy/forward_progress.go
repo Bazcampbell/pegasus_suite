@@ -30,7 +30,7 @@ func NewForwardProgress() *ForwardProgress {
 }
 
 func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfairDelay, betmaticDelay int64,
-	getBetfairRace func(core.RaceRef) *core.BetfairRace) (core.Decision, error) {
+	getBetfairRace func(core.RaceRef) *core.BetfairRace) ([]core.Bet, error) {
 
 	key := ref.Key
 	state, tracked := s.races[key]
@@ -39,7 +39,7 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 	// too, rather than being kept for the life of the process.
 	if ref.Status == core.StatusFinished {
 		delete(s.races, key)
-		return core.Decision{}, nil
+		return nil, nil
 	}
 
 	if !tracked {
@@ -47,22 +47,22 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 		state, ok = openRace(ref, getBetfairRace)
 		s.races[key] = state
 		if !ok {
-			return core.Decision{}, nil
+			return nil, nil
 		}
 	}
 
 	if state.ignore {
-		return core.Decision{}, nil
+		return nil, nil
 	}
 
 	if !state.started {
 		if ref.Status != core.StatusRunning {
-			return core.Decision{Tracking: true}, nil
+			return nil, nil
 		}
 
 		at, err := util.ISO8601ToTime(m.Timestamp)
 		if err != nil {
-			return core.Decision{Tracking: true}, fmt.Errorf("unable to parse first running message timestamp %s: %w", m.Timestamp, err)
+			return nil, fmt.Errorf("unable to parse first running message timestamp %s: %w", m.Timestamp, err)
 		}
 
 		state.started = true
@@ -76,18 +76,18 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 		logger.Debug(logger.Log{
 			App:     core.AppName,
 			Message: "initial running message received",
-			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:    ref.LogRace(),
 		})
-		return core.Decision{Tracking: true}, nil
+		return nil, nil
 	}
 
 	if state.betfairPlaced && state.betmaticPlaced {
-		return core.Decision{}, nil
+		return nil, nil
 	}
 
 	at, err := util.ISO8601ToTime(m.Timestamp)
 	if err != nil {
-		return core.Decision{Tracking: true}, fmt.Errorf("unable to parse current message timestamp %s: %w", m.Timestamp, err)
+		return nil, fmt.Errorf("unable to parse current message timestamp %s: %w", m.Timestamp, err)
 	}
 
 	delta := at.Sub(state.startedAt).Milliseconds()
@@ -97,40 +97,40 @@ func (s *ForwardProgress) Select(m triples.RaceMessage, ref core.RaceRef, betfai
 
 	// wait for more information to be received from triples
 	if !betfairReady && !betmaticReady {
-		return core.Decision{Tracking: true}, nil
+		return nil, nil
 	}
 
 	best, worst, ok := s.extremes(state.start, m.LiveDataSets)
 	if !ok {
-		return core.Decision{Tracking: true}, nil
+		return nil, nil
 	}
 
 	unit := unitFor(ref.Code, state.distance)
 	if unit <= 0 {
 		state.ignore = true
 		s.races[key] = state
-		return core.Decision{}, nil
+		return nil, nil
 	}
 
-	decision := core.Decision{Tracking: true}
+	var bets []core.Bet
 
 	if betmaticReady {
-		decision.Bets = append(decision.Bets, core.Bet{Ref: ref, Side: core.BetmaticWin, Runner: best, Unit: unit})
+		bets = append(bets, core.Bet{Ref: ref, Side: core.BetmaticWin, Runner: best, Unit: unit})
 		state.betmaticPlaced = true
 	}
 
 	if betfairReady {
-		decision.Bets = append(decision.Bets, core.Bet{Ref: ref, Side: core.BetfairBack, Runner: best, Unit: unit})
+		bets = append(bets, core.Bet{Ref: ref, Side: core.BetfairBack, Runner: best, Unit: unit})
 
 		if worst != best {
-			decision.Bets = append(decision.Bets, core.Bet{Ref: ref, Side: core.BetfairLay, Runner: worst, Unit: unit})
+			bets = append(bets, core.Bet{Ref: ref, Side: core.BetfairLay, Runner: worst, Unit: unit})
 		}
 		state.betfairPlaced = true
 	}
 
 	s.races[key] = state
 
-	return decision, nil
+	return bets, nil
 }
 
 // openRace resolves the distance the unit scales on. Triple-S does not carry it,
@@ -140,7 +140,7 @@ func openRace(ref core.RaceRef, getBetfairRace func(core.RaceRef) *core.BetfairR
 		logger.Warn(logger.Log{
 			App:     core.AppName,
 			Message: fmt.Sprintf("forward progress does not bet racing code %q", ref.Code),
-			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:    ref.LogRace(),
 		})
 		return forwardProgressState{ignore: true}, false
 	}
@@ -150,7 +150,7 @@ func openRace(ref core.RaceRef, getBetfairRace func(core.RaceRef) *core.BetfairR
 		logger.Error(logger.Log{
 			App:     core.AppName,
 			Message: "unable to resolve betfair race",
-			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:    ref.LogRace(),
 		})
 		return forwardProgressState{ignore: true}, false
 	}
@@ -159,7 +159,7 @@ func openRace(ref core.RaceRef, getBetfairRace func(core.RaceRef) *core.BetfairR
 		logger.Warn(logger.Log{
 			App:     core.AppName,
 			Message: fmt.Sprintf("race distance is 0, unable to get race distance: %s", bfRace.Name),
-			Race:    &logger.Race{Venue: ref.VenueName, Number: ref.RaceNumber},
+			Race:    ref.LogRace(),
 		})
 		return forwardProgressState{ignore: true}, false
 	}
