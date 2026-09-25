@@ -8,7 +8,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o /wagering ./cmd/wagering
+RUN CGO_ENABLED=0 go build -o /wagering ./cmd/pegasus
 
 # Runtime stage
 FROM alpine:3.21

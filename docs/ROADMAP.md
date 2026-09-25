@@ -238,7 +238,15 @@ Sessions, dedupe, prices, IDs, the ledger, logging and PnL all come for free. DA
 
 ---
 
-## 11. Suggested order
+## 11. Status (2026-09-25)
+
+Everything in §2 is built except tote, which is deferred. `ARCHITECTURE.md`
+describes the result. What changed from the plan in §3–§9: dedupe is per
+user but owned by the first app to bet a runner; claims are memory only; the
+bet ID has no time in it; the app, not the engine, resolves venue names and
+Betfair IDs.
+
+## 11a. Original suggested order
 
 1. **Fix the build.** Settle the `BookmakerBet` refactor so that `PlaceBet` returns the provider ID, and define `engine.BetmaticVenue` or move it to `racing`.
 2. Add `racing/` (Race, venue tables, BetID) and move the mapping out of pegasus.
