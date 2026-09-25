@@ -16,7 +16,6 @@ import (
 	"pegasus_suite/betting/betfair"
 	"pegasus_suite/betting/betmatic"
 	"pegasus_suite/clients"
-	"pegasus_suite/logger"
 )
 
 var betfairCountries = []string{"AU"}
