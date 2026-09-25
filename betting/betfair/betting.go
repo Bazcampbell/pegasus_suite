@@ -15,10 +15,10 @@ func (r BetRequest) Provider() betting.Provider { return betting.ProviderBetfair
 
 func (r BetRequest) Validate() error {
 	if r.MarketID == "" {
-		return errors.New("market_id is required")
+		return fmt.Errorf("market_id is required")
 	}
 	if r.SelectionID <= 0 {
-		return errors.New("selection_id must be positive")
+		return fmt.Errorf("selection_id must be positive")
 	}
 	if _, err := parseSide(r.Side); err != nil {
 		return err
@@ -50,18 +50,18 @@ func parseSide(s string) (exchange.Side, error) {
 	return "", fmt.Errorf("side must be %q or %q, got %q", exchange.SideBack, exchange.SideLay, s)
 }
 
-func (bc *Client) PlaceBet(request betting.BetRequest) error {
+func (bc *Client) PlaceBet(request betting.BetRequest) (betId string, err error) {
 	if bsp, ok := request.(BSPBetRequest); ok {
 		_, err := bc.PlaceBSPBet(bsp)
-		return err
+		return "", err
 	}
 
 	req, ok := request.(BetRequest)
 	if !ok {
-		return betting.ErrWrongProvider
+		return "", betting.ErrWrongProvider
 	}
 	if err := req.Validate(); err != nil {
-		return err
+		return "", err
 	}
 
 	side, _ := parseSide(req.Side)
@@ -74,7 +74,7 @@ func (bc *Client) PlaceBet(request betting.BetRequest) error {
 	// The exchange reports a rejected order in the body with a 200; PlaceOrders
 	// turns that into an *exchange.ExecutionError, so err covers both it and a
 	// transport failure.
-	_, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
+	placeExecutionReport, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
 		MarketID:            req.MarketID,
 		CustomerRef:         req.CustomerRef,
 		CustomerStrategyRef: req.CustomerStrategyRef,
@@ -87,5 +87,5 @@ func (bc *Client) PlaceBet(request betting.BetRequest) error {
 			CustomerOrderRef: req.OrderRef,
 		}},
 	})
-	return err
+	return placeExecutionReport.InstructionReports, nil
 }

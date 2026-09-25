@@ -3,8 +3,9 @@
 package betmatic
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
+	"pegasus_suite/logger"
 	"strconv"
 
 	"github.com/Bazcampbell/goreq"
@@ -45,22 +46,27 @@ func (bc *Client) RefreshToken() error {
 	return nil
 }
 
-var ErrNotificationRejected = errors.New("betmatic rejected the notification")
-
-func (bc *Client) CreateNotification(req NotificationRequest) (string, error) {
+func (bc *Client) CreateNotification(req NotificationRequest) (notificationId string, err error) {
 	resp, err := goreq.Post(baseURL+"/notification/create/", req, bc.authHeaderOptions())
 	if err != nil {
-		if resp == nil {
-			return "", fmt.Errorf("creating notification: %w", err)
-		}
-		return string(resp.Body), fmt.Errorf("creating notification: %w", err)
+		return "", fmt.Errorf("creating notification: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return string(resp.Body), fmt.Errorf("creating notification: %w: status %d: %s", ErrNotificationRejected, resp.StatusCode, resp.Body)
+		return "", fmt.Errorf("%d: %s", resp.StatusCode, resp.Body)
 	}
 
-	return string(resp.Body), nil
+	var notiResp NotificationResponse
+	if err = json.Unmarshal(resp.Body, &notiResp); err != nil {
+		logger.Debug(logger.Log{
+			FormattedMessage: "successfully sent Betmatic notification but no ID",
+			Request:          req,
+			Response:         resp.Body,
+		})
+		return "", nil
+	}
+
+	return notiResp.Id, nil
 }
 
 func (bc *Client) GetNotifications(request GetNotificationsRequest) (GetNotificationResponse, error) {
@@ -82,7 +88,6 @@ func (bc *Client) GetNotificationBets(notificationID string) (NotificationBetsRe
 	return goreq.GetType[NotificationBetsResponse](url, bc.authHeaderOptions())
 }
 
-// returns upcoming events based off a racing code and country code
 func (bc *Client) GetUpcomingEvents(racingCode RacingCode, countryCode string) ([]Event, error) {
 	resp, err := goreq.GetType[[]Event](baseURL+"/competition/namecodes/", bc.authHeaderOptions())
 	if err != nil {
@@ -103,7 +108,6 @@ func (bc *Client) GetAllBookieAccounts() ([]BookieAccount, error) {
 	return goreq.GetType[[]BookieAccount](baseURL+"/bookieaccount/", bc.authHeaderOptions())
 }
 
-// command is ON or OFF
 func (bc *Client) controlBookieByID(id int, command BookieAccountCommand) error {
 	_, err := goreq.PostJSON(baseURL+"/bookieaccount/control/"+strconv.Itoa(id)+"/", BookieAccountControlRequest{
 		Command: string(command),

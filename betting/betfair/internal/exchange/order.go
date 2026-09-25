@@ -7,9 +7,7 @@ import (
 	"strings"
 )
 
-// ExecutionError is a bet Betfair declined. placeOrders answers 200 OK with the
-// rejection in the body, so without this a bare error check reads failure as
-// success.
+// rejected bet payload, still returns 200
 type ExecutionError struct {
 	Endpoint          string
 	Status            ExecutionReportStatus

@@ -1,4 +1,4 @@
-// cmd/wagering/main.go
+// cmd/pegasus/main.go
 //
 // wires the store, the logger, the kernel and every application, then serves API
 

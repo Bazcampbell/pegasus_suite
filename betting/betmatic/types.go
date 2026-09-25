@@ -169,8 +169,6 @@ type Result struct {
 	Label       string    `json:"label"`
 }
 
-// Resulted reports whether the race this notification bet into has been settled,
-// which is the only signal that its Profit is final rather than prospective.
 func (r Result) Resulted() bool { return !r.Tip.ResultTime.IsZero() }
 
 type Tip struct {
@@ -178,8 +176,6 @@ type Tip struct {
 	Market      string      `json:"market"`
 	Selection   string      `json:"selection"`
 
-	// MinOdds is the floor the bet was placed with; Profit is per accepted
-	// dollar, so it is average_odds−1 on a winner and −1 on a loser.
 	MinOdds    util.FlexFloat `json:"odds"`
 	Profit     util.FlexFloat `json:"profit"`
 	ResultTime time.Time      `json:"result_time"`
@@ -190,15 +186,11 @@ type Competition struct {
 	Name        string         `json:"name"`
 	EventNumber util.FlexFloat `json:"event_number"`
 
-	// Result is the finishing order as runner numbers, e.g. "10/4/6/14".
-	// Runners and RunnerNames are parallel lists, "1,2,4" and "A#&#B#&#C".
 	Result      string `json:"result"`
 	Runners     string `json:"runners"`
 	RunnerNames string `json:"runner_names"`
 }
 
-// RunnerName resolves a runner number against the parallel runners/runner_names
-// lists, returning "" when the field is unavailable or the number isn't in it.
 func (c Competition) RunnerName(number int) string {
 	numbers := strings.Split(c.Runners, ",")
 	names := strings.Split(c.RunnerNames, "#&#")
@@ -213,8 +205,6 @@ func (c Competition) RunnerName(number int) string {
 	return ""
 }
 
-// Winner is the first runner number in the finishing order, 0 when the race has
-// no result yet.
 func (c Competition) Winner() int {
 	first, _, _ := strings.Cut(c.Result, "/")
 	n, err := strconv.Atoi(strings.TrimSpace(first))
@@ -233,8 +223,6 @@ type GetNotificationsRequest struct {
 	Sports   string     `form:"sports" url:"sports,omitempty"`
 	Search   string     `form:"search" url:"search,omitempty"`
 
-	// The meeting date is the race's, not the notification's, which is what a
-	// result lands against.
 	MeetingDateFrom string `form:"meeting_date_from" url:"meeting_date_from,omitempty"`
 	MeetingDateTo   string `form:"meeting_date_to" url:"meeting_date_to,omitempty"`
 

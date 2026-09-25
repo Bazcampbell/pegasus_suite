@@ -3,9 +3,7 @@
 package betfair
 
 import (
-	"strings"
 	"time"
-	"unicode"
 
 	"pegasus_suite/betting/betfair/internal/exchange"
 )
@@ -32,9 +30,21 @@ type Race struct {
 	Runners  map[int]*Runner // RunnerNumber:Runner
 }
 
+func cloneRace(race *Race) *Race {
+	out := *race
+	out.Runners = make(map[int]*Runner, len(race.Runners))
+	for number, runner := range race.Runners {
+		r := *runner
+		r.Back = append([]OrderBook(nil), runner.Back...)
+		r.Lay = append([]OrderBook(nil), runner.Lay...)
+		out.Runners[number] = &r
+	}
+	return &out
+}
+
 type Runner struct {
 	Number int
-	Lay    []OrderBook // ordered
+	Lay    []OrderBook // ordered best-worst by default
 	Back   []OrderBook
 	LTP    float64
 
@@ -74,7 +84,7 @@ type BSPBetRequest struct {
 	CustomerStrategyRef string `json:"customer_strategy_ref,omitempty"`
 }
 
-type BSPBetResult struct {
+type BetResult struct {
 	BetID      string
 	Status     string
 	PlacedDate time.Time
@@ -107,15 +117,4 @@ func wap(book []OrderBook) float64 {
 		return 0
 	}
 	return totalPriceSize / totalSize
-}
-
-// "Gold Coast", "gold-coast" and "GOLDCOAST" = same key
-func NormaliseTrack(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
 }

@@ -27,8 +27,7 @@ type Client struct {
 	cancelToken context.CancelFunc
 	cancelTrack context.CancelFunc
 
-	// both keyed COUNTRY:normalised-track — track names alone collide across
-	// countries (Newcastle, Ascot, Hamilton all exist in more than one).
+	// country:track
 	mu                         sync.RWMutex
 	upcomingThoroughbredEvents map[string]*Event
 	upcomingTrotEvents         map[string]*Event
@@ -104,9 +103,6 @@ func (bc *Client) tickRefresh() {
 		})
 		return
 	}
-	logger.Debug(logger.Log{
-		FormattedMessage: fmt.Sprintf("betfair token refreshed request=%v", bc.api.Username),
-	})
 }
 
 func (bc *Client) StartTrackRefresh(parent context.Context, countryCodes []string) {

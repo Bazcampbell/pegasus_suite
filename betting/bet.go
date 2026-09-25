@@ -4,30 +4,51 @@ package betting
 
 import "time"
 
-// BetStatus is where a bet a provider accepted has got to.
 type BetStatus string
 
 const (
-	BetPending BetStatus = "PENDING" // accepted, not resulted yet
-	BetWon     BetStatus = "WON"
-	BetLost    BetStatus = "LOST"
-	BetVoid    BetStatus = "VOID"   // resulted with nothing won or lost: voided, scratched, refunded
-	BetLapsed  BetStatus = "LAPSED" // nothing was accepted or matched, so no money was on
+	BetPending  BetStatus = "PENDING"
+	BetWon      BetStatus = "WON"
+	BetLost     BetStatus = "LOST"
+	BetVoid     BetStatus = "VOID"
+	BetRejected BetStatus = "REJECTED"
+	BetLapsed   BetStatus = "LAPSED"
 )
 
-// Bet is what a provider says about one bet, by the ID it gave on placement:
-// the Betmatic notification id or the Betfair betId. Same shape for every
-// provider, so the resulter treats them alike.
-type Bet struct {
-	ID       string
-	Provider Provider
-	Status   BetStatus
+// internal bet struct, per book
+type BookmakerBet struct {
+	ProviderID string // bf ref or betmatic notification ID
+	Bookmaker  string // book, bf, tote
 
-	Stake  float64 // money actually on: Betmatic accepted, Betfair size settled
-	Odds   float64 // average price matched
-	Profit float64 // positive won, negative lost; Betfair's is before commission
+	Venue      string // betmatic venue
+	RaceNo     string
+	RunnerNo   string // de-dupe
+	RunnerName string
 
-	SettledAt time.Time // zero while pending, or when the provider doesn't say
+	PlacedAt   time.Time
+	ResultedAt time.Time
+
+	Status    BetStatus
+	Requested float64
+	Accepted  float64
+	Odds      float64
+	Return    float64
 }
 
-func (b Bet) Resulted() bool { return b.Status != BetPending }
+// bet recap for an entire event
+type EventBetRecap struct {
+	Venue      string
+	RaceNo     string
+	RunnerNo   string
+	RunnerName string
+
+	Bets []BookmakerBet
+
+	Status         BetStatus
+	TotalRequested float64
+	TotalAccepted  float64
+	AvgOdds        float64
+	TotalReturn    float64
+}
+
+func (b BookmakerBet) Resulted() bool { return b.Status != BetPending }

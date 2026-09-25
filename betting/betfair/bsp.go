@@ -4,6 +4,7 @@ package betfair
 
 import (
 	"errors"
+	"fmt"
 
 	"pegasus_suite/betting/betfair/internal/exchange"
 
@@ -32,9 +33,9 @@ func (r BSPBetRequest) Validate() error {
 	return nil
 }
 
-func (bc *Client) PlaceBSPBet(req BSPBetRequest) (BSPBetResult, error) {
+func (bc *Client) PlaceBSPBet(req BSPBetRequest) (BetResult, error) {
 	if err := req.Validate(); err != nil {
-		return BSPBetResult{}, err
+		return BetResult{}, err
 	}
 
 	side, _ := parseSide(req.Side)
@@ -57,8 +58,7 @@ func (bc *Client) PlaceBSPBet(req BSPBetRequest) (BSPBetResult, error) {
 		}
 	}
 
-	// PlaceOrders already turns a rejected report into an *client.ExecutionError,
-	// so a non-nil err covers both transport failure and a 200 carrying FAILURE.
+	// PlaceOrders covers the rejected status, returning error from erroneous 200 status resp
 	report, err := bc.api.PlaceOrders(exchange.PlaceOrdersRequest{
 		MarketID:            req.MarketID,
 		CustomerRef:         req.CustomerRef,
@@ -66,14 +66,14 @@ func (bc *Client) PlaceBSPBet(req BSPBetRequest) (BSPBetResult, error) {
 		Instructions:        []exchange.PlaceInstruction{instruction},
 	})
 	if err != nil {
-		return BSPBetResult{}, err
+		return BetResult{}, err
 	}
 	if len(report.InstructionReports) == 0 {
-		return BSPBetResult{}, errors.New("betfair returned no instruction report")
+		return BetResult{}, fmt.Errorf("betfair returned no instruction report")
 	}
 
 	placed := report.InstructionReports[0]
-	return BSPBetResult{
+	return BetResult{
 		BetID:      placed.BetID,
 		Status:     string(placed.Status),
 		PlacedDate: placed.PlacedDate,

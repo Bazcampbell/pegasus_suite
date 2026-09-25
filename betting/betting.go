@@ -17,6 +17,7 @@ const (
 )
 
 var ErrUnknownProvider = errors.New("unknown provider")
+var ErrWrongProvider = errors.New("bet request does not match the client's provider")
 
 func ParseProvider(s string) (Provider, error) {
 	switch Provider(strings.ToLower(strings.TrimSpace(s))) {
@@ -28,8 +29,7 @@ func ParseProvider(s string) (Provider, error) {
 	return "", fmt.Errorf("%w: %q", ErrUnknownProvider, s)
 }
 
-// any client capable of placing a bet
-// betfair, betmatic, tote (soon)
+// client capable of placing a bet
 type Client interface {
 	Provider() Provider
 	Account() string
@@ -38,31 +38,14 @@ type Client interface {
 	StartTokenRefresh(ctx context.Context)
 	Close()
 
-	// GetBet asks the provider what happened to a bet it accepted, by the ID it
-	// gave on placement. A bet not resulted yet is BetPending with a nil error;
-	// an error means the provider could not be asked, so try again later.
-	GetBet(id string) (Bet, error)
+	// a list of bet IDs that were returned for a single event + process
+	// returns a summary of the bets placed during said event
+	//GetEventBetRecap(id []string) (EventBetRecap, error)
 
-	PlaceBet(req BetRequest) error
+	PlaceBet(req BetRequest) (id string, err error)
 }
 
-// BetRequest stays provider-specific by design. A Betmatic notification and a
-// Betfair limit order have almost nothing in common beyond intent, and
-// flattening them into one struct would make every field optional and push
-// validation back onto every caller. The interface carries only what dispatch
-// needs; the concrete type is what the client actually reads.
+// interface carries what dispatch needs, concrete for client
 type BetRequest interface {
 	Provider() Provider
-}
-
-var ErrWrongProvider = errors.New("bet request does not match the client's provider")
-
-// BookieController is implemented by providers that expose per-bookmaker
-// arming. Betmatic fans one notification across many bookmaker accounts, so
-// which of them are live is a real control; Betfair is a single exchange
-// account with nothing to arm. ENGINE asserts for this at the arm/disarm route
-// rather than putting no-op methods on clients that have no bookies.
-type BookieController interface {
-	TurnOnBookies(bookIDs []int, botID string) []error
-	TurnOffBookies(bookIDs []int, botID string) []error
 }

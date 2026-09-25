@@ -6,21 +6,21 @@ import (
 	"context"
 	"fmt"
 
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"pegasus_suite/betting"
 	logger "pegasus_suite/logger"
 
 	"pegasus_suite/betting/betfair/internal/exchange"
 )
 
-func (bc *Client) setEvents(events []Event) {
+func (bc *Client) setUpcomingEventsMap(events []Event) {
 	thoroughbred := make(map[string]*Event, len(events))
 	trot := make(map[string]*Event, len(events))
 	for _, event := range events {
-		key := strings.ToUpper(event.Country) + ":" + NormaliseTrack(event.TrackName)
+		key := strings.ToUpper(event.Country) + ":" + betting.NormaliseTrackKey(event.TrackName)
 		if event.Code == TROT {
 			trot[key] = &event
 			continue
@@ -38,7 +38,7 @@ func (bc *Client) GetRace(code RacingCode, country, trackName string, raceNumber
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
-	race := bc.raceByKeyLocked(code, country, NormaliseTrack(trackName), raceNumber)
+	race := bc.raceByKeyLocked(code, country, betting.NormaliseTrackKey(trackName), raceNumber)
 	if race == nil {
 		return nil
 	}
@@ -50,70 +50,30 @@ func (bc *Client) HasRace(code RacingCode, country, trackName string, raceNumber
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
-	return bc.raceByKeyLocked(code, country, NormaliseTrack(trackName), raceNumber) != nil
+	return bc.raceByKeyLocked(code, country, betting.NormaliseTrackKey(trackName), raceNumber) != nil
 }
 
-// caller must hold bc.mu (read or write). Any code that isn't TROT reads the
-// thoroughbred store, matching how an event with no trot marker is classified.
-func (bc *Client) eventsLocked(code RacingCode) map[string]*Event {
+func (bc *Client) getEventsLocked(code RacingCode) map[string]*Event {
 	if code == TROT {
 		return bc.upcomingTrotEvents
+	} else if code == THOROUGHBRED {
+		return bc.upcomingThoroughbredEvents
 	}
-	return bc.upcomingThoroughbredEvents
+	return nil
 }
 
 // caller must hold bc.mu (read or write).
 func (bc *Client) raceByKeyLocked(code RacingCode, country, normTrack string, raceNumber int) *Race {
-	event, ok := bc.eventsLocked(code)[strings.ToUpper(country)+":"+normTrack]
+	event, ok := bc.getEventsLocked(code)[strings.ToUpper(country)+":"+normTrack]
 	if !ok {
 		return nil
 	}
 	return event.Races[raceNumber]
 }
 
-func cloneRace(race *Race) *Race {
-	out := *race
-	out.Runners = make(map[int]*Runner, len(race.Runners))
-	for number, runner := range race.Runners {
-		r := *runner
-		r.Back = append([]OrderBook(nil), runner.Back...)
-		r.Lay = append([]OrderBook(nil), runner.Lay...)
-		out.Runners[number] = &r
-	}
-	return &out
-}
-
-// country code -> normalised track -> race numbers, which is the shape GetRace
-// and StartRunnerUpdates take their arguments in.
-func (bc *Client) LoadedTrackRaces(code RacingCode) map[string]map[string][]int {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	out := make(map[string]map[string][]int)
-	for _, event := range bc.eventsLocked(code) {
-		if len(event.Races) == 0 {
-			continue
-		}
-
-		numbers := make([]int, 0, len(event.Races))
-		for number := range event.Races {
-			numbers = append(numbers, number)
-		}
-		sort.Ints(numbers)
-
-		country := strings.ToUpper(event.Country)
-		if out[country] == nil {
-			out[country] = make(map[string][]int)
-		}
-		out[country][NormaliseTrack(event.TrackName)] = numbers
-	}
-
-	return out
-}
-
-// polls listMarketBook every RUNNER_UPDATE_INTERVAL until derived context is cancelled
+// polls listMarketBook every RUNNER_UPDATE_INTERVAL until context is cancelled
 func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, country, trackName string, raceNumber int) {
-	normTrack := NormaliseTrack(trackName)
+	normTrack := betting.NormaliseTrackKey(trackName)
 	key := runnerKey(code, country, normTrack, raceNumber)
 
 	bc.mu.RLock()
@@ -137,7 +97,7 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 	bc.runnerMu.Unlock()
 
 	logger.Debug(logger.Log{
-		FormattedMessage: fmt.Sprintf("betfair runner updates started request=raceId: %s", race.ID),
+		FormattedMessage: fmt.Sprintf("betfair runner updates started raceId: %s", race.ID),
 		RaceDetails:      &logger.RaceDetails{Venue: trackName, RaceNumber: raceNumber},
 	})
 
@@ -145,7 +105,7 @@ func (bc *Client) StartRunnerUpdates(parent context.Context, code RacingCode, co
 }
 
 func (bc *Client) StopRunnerUpdates(code RacingCode, country, trackName string, raceNumber int) {
-	bc.stopRunnerUpdates(runnerKey(code, country, NormaliseTrack(trackName), raceNumber))
+	bc.stopRunnerUpdates(runnerKey(code, country, betting.NormaliseTrackKey(trackName), raceNumber))
 }
 
 func (bc *Client) stopRunnerUpdates(key string) {
@@ -173,19 +133,15 @@ func (bc *Client) stopAllRunnerUpdates() {
 	}
 }
 
-func runnerKey(code RacingCode, country, normTrack string, raceNumber int) string {
-	return fmt.Sprintf("%s:%s:%s:%d", code, strings.ToUpper(country), normTrack, raceNumber)
-}
-
 func (bc *Client) runnerUpdateLoop(ctx context.Context, key string, code RacingCode, country, normTrack string, raceNumber int) {
 	ticker := time.NewTicker(RUNNER_UPDATE_INTERVAL)
 	defer ticker.Stop()
 
-	// Ensure the cancel func is removed from the registry whichever way we exit
-	// (parent cancel, Stop, or market closed), so a later Start can run again.
+	// remove cancel func from register whichever way we exit
+	// ensures a later start can run again
 	defer bc.stopRunnerUpdates(key)
 
-	// Update immediately so the first prices land without waiting a full tick.
+	// initial update
 	if closed := bc.updateRunners(code, country, normTrack, raceNumber); closed {
 		return
 	}
@@ -206,11 +162,9 @@ func (bc *Client) runnerUpdateLoop(ctx context.Context, key string, code RacingC
 	}
 }
 
-// updateRunners fetches the latest market book for the race and writes each
-// runner's LTP and back/lay depth. It returns true when the market is closed,
-// signalling the loop to stop. The race is re-resolved each tick so an hourly
-// track refresh swapping the events map doesn't leave us updating a detached
-// race object.
+// fetches latest market book for the race, writes runner LTP + back/lay
+// returns true when market is closed
+// race is re-resolved each time so track refresh does not interfere
 func (bc *Client) updateRunners(code RacingCode, country, normTrack string, raceNumber int) (closed bool) {
 	bc.mu.RLock()
 	race := bc.raceByKeyLocked(code, country, normTrack, raceNumber)
@@ -245,8 +199,7 @@ func (bc *Client) updateRunners(code RacingCode, country, normTrack string, race
 		return book.Status == exchange.MarketStatusClosed
 	}
 
-	// Index the live runners by selection id so we can match the price feed,
-	// which is keyed by selection id rather than cloth number.
+	// live runners by selection ID to match price feed
 	bySelection := make(map[int64]*Runner, len(race.Runners))
 	for _, runner := range race.Runners {
 		selectionID, err := strconv.ParseInt(runner.SelectionID, 10, 64)
@@ -262,8 +215,8 @@ func (bc *Client) updateRunners(code RacingCode, country, normTrack string, race
 			continue
 		}
 		runner.LTP = rb.LastPriceTraded
-		runner.Back = toOrderBook(rb.EX.AvailableToBack, true)
-		runner.Lay = toOrderBook(rb.EX.AvailableToLay, false)
+		runner.Back = toOrderBook(rb.EX.AvailableToBack)
+		runner.Lay = toOrderBook(rb.EX.AvailableToLay)
 	}
 
 	return book.Status == exchange.MarketStatusClosed

@@ -8,6 +8,14 @@ type BookmakerIcon struct {
 	URL  string
 }
 
+func BookieName(id int) string {
+	bookIcon, ok := BookmakerIcons[id]
+	if !ok {
+		return "Unknown"
+	}
+	return bookIcon.Name
+}
+
 var BookmakerIcons = map[int]BookmakerIcon{
 	1:   {ID: 1, Name: "BetDeluxe", URL: "https://betmatic-bucket.s3.ap-southeast-2.amazonaws.com/bookie_icon/betdeluxe.png"},
 	2:   {ID: 2, Name: "RobWaterhouse", URL: "https://betmatic-bucket.s3.ap-southeast-2.amazonaws.com/bookie_icon/robwaterhouse.png"},

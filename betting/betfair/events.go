@@ -10,11 +10,8 @@ import (
 )
 
 var (
-	raceNumberRe = regexp.MustCompile(`(?i)^R(\d+)`)
-	distanceRe   = regexp.MustCompile(`(\d+)m`)
-
-	// The marker is its own word — "R1 2030m Pace", "R4 1609m Trot Final" — so
-	// both boundaries are required: "Space" and "Pacemaker" must not match.
+	raceNumberRe    = regexp.MustCompile(`(?i)^R(\d+)`)
+	distanceRe      = regexp.MustCompile(`(\d+)m`)
 	harnessMarketRe = regexp.MustCompile(`(?i)\b(pace|trot)\b`)
 )
 
@@ -58,7 +55,7 @@ func (bc *Client) loadUpcomingEvents(countryCodes []string) {
 		})
 	}
 
-	bc.setEvents(events)
+	bc.setUpcomingEventsMap(events)
 
 	logger.Debug(logger.Log{
 		FormattedMessage: fmt.Sprintf("betfair upcoming events refreshed tracks=%d races=%d detail=[%s]",

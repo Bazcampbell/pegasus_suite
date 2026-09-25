@@ -21,8 +21,7 @@ type Client struct {
 	Email    string
 	password string
 
-	// eventMap is race number -> runner names -> event, refreshed on a timer.
-	// Only populated once StartUpcomingEventsRefresh has run.
+	// race num:runner name:event
 	eventMap atomic.Pointer[map[int]map[string]Event]
 
 	cancelToken  context.CancelFunc
@@ -93,8 +92,6 @@ func (bc *Client) tickTokenRefresh() {
 	})
 }
 
-// GetEventMap returns the most recent event map, or nil if no refresh has
-// landed yet. Callers must treat nil as "not ready", not as "no races".
 func (bc *Client) GetEventMap() map[int]map[string]Event {
 	ptr := bc.eventMap.Load()
 	if ptr == nil {
@@ -156,15 +153,13 @@ func (bc *Client) StartUpcomingEventsRefresh(parent context.Context, racingCode 
 	}()
 }
 
-// returns only error
-func (bc *Client) PlaceBet(req betting.BetRequest) error {
+func (bc *Client) PlaceBet(req betting.BetRequest) (betId string, err error) {
 	notification, ok := req.(NotificationRequest)
 	if !ok {
-		return betting.ErrWrongProvider
+		return "", betting.ErrWrongProvider
 	}
 
-	_, err := bc.CreateNotification(notification)
-	return err
+	return bc.CreateNotification(notification)
 }
 
 func (bc *Client) TurnOnBookies(bookIDs []int, botID string) []error {
@@ -175,7 +170,6 @@ func (bc *Client) TurnOffBookies(bookIDs []int, botID string) []error {
 	return bc.controlBookies(bookIDs, botID, OFF)
 }
 
-// controls all bookies accounts for each book ID
 func (bc *Client) controlBookies(bookIDs []int, botID string, command BookieAccountCommand) []error {
 	books, err := bc.GetAllBookieAccounts()
 	if err != nil {
@@ -223,19 +217,9 @@ func (bc *Client) controlBookies(bookIDs []int, botID string, command BookieAcco
 	return errs
 }
 
-func BookieName(id int) string {
-	bookIcon, ok := BookmakerIcons[id]
-	if !ok {
-		return "Unknown"
-	}
-	return bookIcon.Name
-}
-
 // The pool in ENGINE holds these behind betting.Client, so a signature drifting
 // out of the interface must fail the build here rather than at the call site.
 var (
 	_ betting.Client     = (*Client)(nil)
 	_ betting.BetRequest = NotificationRequest{}
 )
-
-var _ betting.BookieController = (*Client)(nil)

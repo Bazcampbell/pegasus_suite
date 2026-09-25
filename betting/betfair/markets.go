@@ -24,7 +24,7 @@ func listEventsFilter(countryCodes []string) exchange.MarketFilter {
 	}
 }
 
-// WIN markets for event, keyed by race number.
+// WIN markets for event, keyed by race number
 func (bc *Client) listRaces(eventID string) (map[int]*Race, error) {
 	markets, err := bc.api.ListMarketCatalogue(exchange.ListRequest{
 		MaxResults: 100,
@@ -74,8 +74,8 @@ func (bc *Client) listRaces(eventID string) (map[int]*Race, error) {
 	return races, nil
 }
 
-// runners keyed by cloth number, which is what selections are made on. the price
-// feed is keyed by selection id instead, so both are kept on the runner.
+// runner keyed by cloth number
+// price feed keyed by selection ID
 func toRunners(m exchange.MarketCatalogue) map[int]*Runner {
 	runners := make(map[int]*Runner, len(m.Runners))
 

@@ -234,8 +234,6 @@ type PlaceInstructionReport struct {
 	SizeMatched         float64                    `json:"sizeMatched"`
 }
 
-// ---- listClearedOrders ----
-
 // BetStatus filters listClearedOrders; one status per request.
 type BetStatus string
 
@@ -246,8 +244,7 @@ const (
 	BetStatusCancelled BetStatus = "CANCELLED"
 )
 
-// ListClearedOrdersRequest looks bets up by id: at most 1000 per request,
-// from the last 90 days.
+// 1000 max per request, last 90 days
 type ListClearedOrdersRequest struct {
 	BetStatus   BetStatus `json:"betStatus"`
 	BetIDs      []string  `json:"betIds,omitempty"`
@@ -260,8 +257,8 @@ type ClearedOrderSummaryReport struct {
 	MoreAvailable bool                  `json:"moreAvailable"`
 }
 
-// ClearedOrderSummary is one settled bet. Profit is before commission, which
-// Betfair only reports rolled up to the market.
+// a single settled bet
+// profit is gross
 type ClearedOrderSummary struct {
 	BetID        string    `json:"betId"`
 	MarketID     string    `json:"marketId"`
