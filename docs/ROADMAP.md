@@ -80,25 +80,29 @@ logger/                one API; stderr becomes async like every other sink
 apps/pegasus, apps/davo  sources: parse feed → canonical Race + runner → engine.Place
 ```
 
-The one rule: **a source says *what* to bet in canonical terms, and the engine
-does everything else.**
+The one rule: **the app resolves *where* (it already needs the Betfair market
+and Betmatic venue to get race information), and the engine does everything
+else: dedupe, IDs, staking, placement, records and logs.** The engine does no
+venue mapping.
+
+One `Order` is one **bet request**: one runner with one or more provider
+legs. Dedupe is per request, not per leg.
 
 ```go
-// everything a source ever sends
 type Order struct {
 	Key    clients.ProcessKey // app, user, process
-	Race   racing.Race        // date, country, code, venue (Betmatic name), number
+	Race   racing.Race        // date (AEST), venue (Betmatic name), race no. Dedupe key and log identity.
 	Runner int
-	Side   Side
 	Unit   float64
 	Stake  Stake
+
+	Betmatic *BetmaticLeg // venue name as Betmatic spells it; nil = no Betmatic leg
+	Betfair  *BetfairLeg  // market ID, selection ID, back/lay; nil = no Betfair leg
 }
 ```
 
-From that, the engine resolves the Betmatic venue, the Betfair market and
-selection (from the catalogue plus the stream cache), checks dedupe, builds
-the request and places it. `dispatch` shrinks to building an `Order`, or goes
-away.
+Pegasus today sends a separate order per side from separate goroutines.
+Those become one `Order` whose legs the engine fires in parallel.
 
 ---
 
@@ -126,9 +130,15 @@ type user struct {
 type betKey struct {
 	Race   racing.Race // includes the date, so a Tuesday tip never collides with next Tuesday
 	Runner int
-	Side   Side        // see open question
 }
 ```
+
+**Rule (decided):** one bet request per runner per user, ever. The first
+`Order` for a runner claims it and may carry every provider leg. Any later
+`Order` for that runner and user is blocked, from any app or process. For
+example, Pegasus sends Betfair + Betmatic for runner 4, then DAVO tips
+runner 4 and is blocked. Different users are independent. If **every** leg
+fails, the claim is released.
 
 - **Hot path:** one mutex, one map lookup and insert *before* the network call (reserve-then-place). That costs well under a microsecond. Users are looked up by ID in a `sync.Map`, or better, the `*user` pointer is resolved once when the process is built and stored on the `Account`, keeping to "no lookups on the hot path".
 - **If placement fails** (a transport error, or the bookmaker rejects the bet), release the reservation so another source can try. Keep it once the bookmaker has accepted.
@@ -242,7 +252,17 @@ Sessions, dedupe, prices, IDs, the ledger, logging and PnL all come for free. DA
 
 ---
 
-## 12. Open questions
+## 12. Decisions (2026-09-25)
+
+- **No venue mapping in the engine.** Apps pass the Betfair market and selection IDs and the Betmatic venue on the order.
+- **Logging is 100 % asynchronous** on every output. Dropped lines are acceptable.
+- **Stream:** a market's prices are dropped on `CLOSED` only.
+- **Dedupe:** one request per runner per user, across all apps. A request may carry several provider legs. The claim is freed if the whole request fails.
+- **Day boundary:** AEST (`Australia/Brisbane`, no DST drift).
+- **Tote:** deferred.
+- **DAVO:** bets are placed immediately. No scheduled-order queue.
+
+## 13. Superseded open questions
 
 1. **Suspended vs closed.** Horse racing markets suspend at the jump and also briefly for scratchings, then reopen. If the cache deletes on `SUSPENDED`, the book is lost until the next full image. Should it delete on `CLOSED` only and mark `SUSPENDED` as not bettable? Or is SUSPENDED the intended signal because you never bet in-play?
 2. **What counts as a duplicate?** Is it the same user, race and runner across *all* providers, or per side? For example, is a Betmatic win bet plus a Betfair back on the same runner a duplicate? Is a back plus a lay a duplicate?
