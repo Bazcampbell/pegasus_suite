@@ -85,15 +85,15 @@ func TestOneProcessMayBetEachProviderOnce(t *testing.T) {
 	}
 }
 
-func TestFailedBetFreesTheRunner(t *testing.T) {
+func TestRejectedBetKeepsTheRunner(t *testing.T) {
 	eng := New(context.Background())
 	acc := accounts([2]string{"pegasus", "a"}, [2]string{"davo", "c"})
 	acc[0].betmatic.(*recorder).err = errors.New("rejected")
 
 	eng.Place(order(acc[0], 4))
 	eng.Place(order(acc[1], 4))
-	if placed(acc[1]) != 1 {
-		t.Fatal("davo was blocked by a pegasus bet that failed")
+	if placed(acc[1]) != 0 {
+		t.Fatal("davo bet a runner pegasus had already sent a bet on")
 	}
 }
 

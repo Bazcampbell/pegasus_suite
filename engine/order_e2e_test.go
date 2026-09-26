@@ -208,31 +208,32 @@ func TestE2EOneProcessBetsEachProviderOnceOnARunner(t *testing.T) {
 	}
 }
 
-func TestE2EFailedBetFreesTheRunner(t *testing.T) {
+func TestE2ERejectedBetIsNeverRetried(t *testing.T) {
 	h := newHarness(t)
 	peg, pegBook, _ := h.account("pegasus", "u1", "peg")
 	davo, davoBook, _ := h.account("davo", "u1", "davo")
 	pegBook.failNext = 1
 
-	h.eng.Place(win(peg, 4))  // rejected: frees the runner
-	h.eng.Place(win(davo, 4)) // so davo may take it
-	h.eng.Place(win(peg, 4))  // and pegasus is now refused
+	h.eng.Place(win(peg, 4))                     // rejected by the bookmaker
+	placeAll(h.eng, repeat(win(peg, 4), 50)...)  // no retry from the same process
+	placeAll(h.eng, repeat(win(davo, 4), 50)...) // nor from another app
 
-	if pegBook.count() != 1 || davoBook.count() != 1 {
-		t.Fatalf("pegasus sent %d, davo sent %d; want 1 each", pegBook.count(), davoBook.count())
+	if pegBook.count() != 1 || davoBook.count() != 0 {
+		t.Fatalf("pegasus sent %d, davo sent %d; want only the one rejected request", pegBook.count(), davoBook.count())
 	}
 }
 
-func TestE2ERetryAfterFailureIsPlacedOnce(t *testing.T) {
+func TestE2ERejectedBetLeavesOtherProvidersOpen(t *testing.T) {
 	h := newHarness(t)
-	a, bm, _ := h.account("pegasus", "u1", "p1")
+	h.books.set(market, 1004, 4.0, 4.2, 4.1)
+	a, bm, bf := h.account("pegasus", "u1", "p1")
 	bm.failNext = 1
 
-	h.eng.Place(win(a, 4))
-	placeAll(h.eng, repeat(win(a, 4), 50)...)
+	h.eng.Place(with(win(a, 4), BetmaticWin))
+	h.eng.Place(with(win(a, 4), BetfairBack))
 
-	if n := bm.count(); n != 2 {
-		t.Fatalf("sent %d requests, want the rejected one and one retry", n)
+	if bm.count() != 1 || bf.count() != 1 {
+		t.Fatalf("betmatic sent %d, betfair sent %d; want 1 each", bm.count(), bf.count())
 	}
 }
 
