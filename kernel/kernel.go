@@ -8,6 +8,7 @@ package kernel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -54,21 +55,65 @@ func (k *Kernel) Apps() []string {
 	return names
 }
 
+// Engine returns the running runtime's engine, or nil while the runtime is stopped.
+func (k *Kernel) Engine() *engine.Engine {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if !k.running.Load() {
+		return nil
+	}
+	return k.eng
+}
+
 func (k *Kernel) HasApp(name string) bool {
 	_, ok := k.byName[name]
 	return ok
 }
 
+// Start starts the runtime and records it as running, so a boot resumes it.
 func (k *Kernel) Start() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.startLocked()
+	if err := k.startLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateRunning)
+	return nil
 }
 
+// Stop stops the runtime and records it as stopped, so a boot leaves it stopped.
 func (k *Kernel) Stop() error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.stopLocked()
+	if err := k.stopLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateStopped)
+	return nil
+}
+
+// Resume starts the runtime if it was running when the last process exited.
+func (k *Kernel) Resume() error {
+	state, err := k.store.Runtime()
+	if err != nil || state != clients.StateRunning {
+		return err
+	}
+	return k.Start()
+}
+
+// Shutdown stops the runtime for process exit without changing what the next boot resumes.
+func (k *Kernel) Shutdown() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.running.Load() {
+		_ = k.stopLocked()
+	}
+}
+
+func (k *Kernel) setRuntime(state clients.State) {
+	if err := k.store.SetRuntime(state); err != nil {
+		logger.Warn(logger.Log{Message: fmt.Sprintf("unable to persist runtime state error=%v", err)})
+	}
 }
 
 func (k *Kernel) Restart() error {
@@ -80,7 +125,11 @@ func (k *Kernel) Restart() error {
 			return err
 		}
 	}
-	return k.startLocked()
+	if err := k.startLocked(); err != nil {
+		return err
+	}
+	k.setRuntime(clients.StateRunning)
+	return nil
 }
 
 func (k *Kernel) Status() Status {
@@ -117,6 +166,9 @@ func (k *Kernel) startLocked() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	k.cancel = cancel
 	k.eng = engine.New(ctx)
+	if err := k.startBetfair(); err != nil {
+		logger.Error(logger.Log{Message: fmt.Sprintf("admin betfair not started; no race catalogue or prices error=%v", err)})
+	}
 
 	h := &host{k: k}
 	errs := make(map[string]string)
@@ -127,8 +179,8 @@ func (k *Kernel) startLocked() error {
 		if err := app.Start(ctx, h); err != nil {
 			errs[app.Name()] = err.Error()
 			logger.Error(logger.Log{
-				Application:      app.Name(),
-				FormattedMessage: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
+				App:     app.Name(),
+				Message: fmt.Sprintf("%s did not start; nothing will run on it until a restart error=%v", app.Name(), err),
 			})
 			continue
 		}
@@ -148,7 +200,7 @@ func (k *Kernel) startLocked() error {
 
 	k.restoreProcessesLocked()
 
-	logger.Info(logger.Log{FormattedMessage: fmt.Sprintf("runtime started apps=%v", k.Apps())})
+	logger.Info(logger.Log{Message: fmt.Sprintf("runtime started apps=%v", k.Apps())})
 	return nil
 }
 
@@ -177,14 +229,29 @@ func (k *Kernel) stopLocked() error {
 	k.cancel()
 	k.cancel = nil
 
-	logger.Info(logger.Log{FormattedMessage: "runtime stopped"})
+	logger.Info(logger.Log{Message: "runtime stopped"})
 	return nil
+}
+
+// startBetfair starts the engine's catalogue and price stream on the shared admin Betfair account.
+func (k *Kernel) startBetfair() error {
+	doc, err := k.store.AppSettings("betfair")
+	if err != nil {
+		return err
+	}
+	var creds engine.BetfairCredentials
+	if len(doc) > 0 {
+		if err := json.Unmarshal(doc, &creds); err != nil {
+			return err
+		}
+	}
+	return k.eng.StartBetfair(creds)
 }
 
 func (k *Kernel) fail(err error) error {
 	msg := err.Error()
 	k.lastErr.Store(&msg)
-	logger.Error(logger.Log{FormattedMessage: fmt.Sprintf("runtime start failed error=%v", err)})
+	logger.Error(logger.Log{Message: fmt.Sprintf("runtime start failed error=%v", err)})
 	return err
 }
 
@@ -204,6 +271,6 @@ func (k *Kernel) getAppByProcessKey(key clients.ProcessKey) (App, error) {
 
 func (k *Kernel) setState(key clients.ProcessKey, state clients.State) {
 	if err := k.store.SetState(key, state); err != nil {
-		logger.Warn(logger.Log{Application: key.App, FormattedMessage: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
+		logger.Warn(logger.Log{App: key.App, Message: fmt.Sprintf("unable to persist process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
 	}
 }

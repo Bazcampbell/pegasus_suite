@@ -64,7 +64,7 @@ func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage
 	if err := k.store.PutProcess(key, doc); err != nil {
 		return fmt.Errorf("unable to save process settings: %w", err)
 	}
-	logger.Info(logger.Log{Application: key.App, FormattedMessage: "saved process settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Info(logger.Log{App: key.App, Message: "saved process settings", UserID: key.UserID, ProcessID: key.ProcessID})
 
 	if !k.running.Load() {
 		return nil
@@ -83,7 +83,7 @@ func (k *Kernel) SaveProcessSettings(key clients.ProcessKey, doc json.RawMessage
 		k.setState(key, clients.StateRunning)
 	}
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "reloaded process from saved settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "reloaded process from saved settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -109,7 +109,7 @@ func (k *Kernel) DeleteProcessSettings(key clients.ProcessKey) error {
 		return fmt.Errorf("unable to delete process settings: %w", err)
 	}
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "deleted process and its settings", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -154,6 +154,6 @@ func (k *Kernel) SaveAppSettings(name string, doc json.RawMessage) error {
 	if err := k.store.PutAppSettings(name, doc); err != nil {
 		return fmt.Errorf("unable to save %s settings: %w", name, err)
 	}
-	logger.Debug(logger.Log{FormattedMessage: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
+	logger.Debug(logger.Log{Message: fmt.Sprintf("saved %s settings; applies on the next runtime restart", name)})
 	return nil
 }

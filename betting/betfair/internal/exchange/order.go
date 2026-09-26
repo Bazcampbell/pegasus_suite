@@ -5,6 +5,8 @@ package exchange
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Bazcampbell/goreq"
 )
 
 // rejected bet payload, still returns 200
@@ -27,7 +29,7 @@ func (e *ExecutionError) Error() string {
 }
 
 func (c *Client) PlaceOrders(req PlaceOrdersRequest) (PlaceExecutionReport, error) {
-	report, err := post[PlaceExecutionReport](c, "placeOrders", req)
+	report, err := goreq.PostType[PlaceExecutionReport](bettingURL+"/placeOrders/", req, withToken(c.orderOptions, c.SessionToken()))
 	if err != nil {
 		return report, err
 	}

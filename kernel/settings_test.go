@@ -38,7 +38,7 @@ type fakeApp struct{ built []*fakeProcess }
 func (a *fakeApp) Name() string                      { return "fake" }
 func (a *fakeApp) Start(context.Context, Host) error { return nil }
 func (a *fakeApp) Stop()                             {}
-func (a *fakeApp) Status() error                     { return nil }
+func (a *fakeApp) Status() any                       { return nil }
 func (a *fakeApp) ProcessSettings() Settings         { return &fakeSettings{} }
 func (a *fakeApp) AdminSettings() map[string]func() Settings {
 	return map[string]func() Settings{"fakefeed": func() Settings { return &fakeSettings{Stake: 1} }}
@@ -264,5 +264,34 @@ func TestListAndDeleteProcesses(t *testing.T) {
 	list, _ = k.ListProcesses("fake", "u1")
 	if len(list) != 1 || list[0].ID != "b" {
 		t.Fatalf("list after delete = %+v; want only b", list)
+	}
+}
+
+func TestResumeFollowsTheLastStartOrStop(t *testing.T) {
+	store := mem.New()
+	k := New(store)
+	k.Register(&fakeApp{})
+
+	if err := k.Resume(); err != nil || k.running.Load() {
+		t.Fatalf("a runtime never started resumed: err=%v", err)
+	}
+	if err := k.Start(); err != nil {
+		t.Fatal(err)
+	}
+	k.Shutdown()
+	if state, _ := store.Runtime(); state != clients.StateRunning {
+		t.Fatalf("shutdown changed the resume state to %q", state)
+	}
+
+	k = New(store)
+	k.Register(&fakeApp{})
+	if err := k.Resume(); err != nil || !k.running.Load() {
+		t.Fatalf("runtime did not resume: err=%v", err)
+	}
+	if err := k.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if state, _ := store.Runtime(); state != clients.StateStopped {
+		t.Fatalf("stop left the resume state %q", state)
 	}
 }

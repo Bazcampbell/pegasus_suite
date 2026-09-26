@@ -164,6 +164,7 @@ type Result struct {
 	Profit        util.FlexFloat `json:"profit"`
 
 	IsCanceled  bool      `json:"is_canceled"`
+	TargetBot   string    `json:"target_bot"`
 	CreatedAt   time.Time `json:"created_at"`
 	TriggeredAt time.Time `json:"triggered_at"`
 	Label       string    `json:"label"`

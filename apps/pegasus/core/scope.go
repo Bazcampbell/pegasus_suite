@@ -8,7 +8,7 @@ import (
 	"pegasus_suite/betting/betmatic"
 )
 
-var ScopeCountries = []string{"AU", "US", "CA"}
+var ScopeCountries = []string{"AU"}
 
 func ScopeKey(country string, code betmatic.RacingCode) string {
 	switch code {

@@ -1,89 +1,115 @@
 // engine/engine.go
+//
+// One engine per runtime, shared by every process of every app. It owns the
+// bookmaker sessions, the admin Betfair catalogue and price stream, dedupe,
+// and placement.
 
 package engine
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"pegasus_suite/betting/betfair"
 	"pegasus_suite/betting/betmatic"
 	"pegasus_suite/clients"
 )
 
-type Side int
-
-const (
-	BetmaticWin Side = iota
-	BetfairBack
-	BetfairLay
-)
-
-func (s Side) String() string {
-	switch s {
-	case BetmaticWin:
-		return "betmatic-win"
-	case BetfairBack:
-		return "betfair-back"
-	case BetfairLay:
-		return "betfair-lay"
-	default:
-		return "unknown"
-	}
-}
-
-// Active reports whether anything is staked. MBL counts even with a zero stake
-// because it bets the bookmaker's maximum instead of targeting a liability.
-func (s Stake) Active() bool { return s.BetsBetmatic() || s.BetsBetfair() }
-
-func (s Stake) BetsBetmatic() bool { return s.Betmatic.WinMBL || s.Betmatic.WinStake > 0 }
-
-func (s Stake) BetsBetfair() bool { return s.Betfair.BackStake > 0 || s.Betfair.LayStake > 0 }
+var betfairCountries = []string{"AU"}
 
 type Engine struct {
-	// ctx bounds every session's token refresh; cancelled on runtime stop.
+	// bounds every background loop; cancelled on runtime stop
 	ctx context.Context
 
+	// guards the session pools; never taken on the bet path
 	mu       sync.Mutex
 	betmatic map[string]*session[*betmatic.Client]
 	betfair  map[string]*session[*betfair.Client]
+
+	users sync.Map // user ID → *claims
+
+	// catalogue and live prices; nil until StartBetfair succeeds
+	admin atomic.Pointer[Books]
+}
+
+// Books is where the engine reads Betfair races and live prices: the admin client, or a fake in tests.
+type Books interface {
+	GetRace(code betfair.RacingCode, country, track string, number int) *betfair.Race
+	Runner(marketID string, selectionID int64) (betfair.RunnerPrices, bool)
+	Close()
 }
 
 func New(ctx context.Context) *Engine {
-	return &Engine{
+	e := &Engine{
 		ctx:      ctx,
 		betmatic: make(map[string]*session[*betmatic.Client]),
 		betfair:  make(map[string]*session[*betfair.Client]),
 	}
+	go e.expireClaims()
+	return e
 }
 
-// Account opens (or joins) the sessions a process needs and binds them with
-// the account fields every bet carries. Sessions are shared by username and
-// refcounted by holding process; see account.go.
-func (e *Engine) Account(key clients.ProcessKey, c Credentials) (*Account, error) {
+// StartBetfair logs the admin account in and starts the race catalogue and the price stream.
+func (e *Engine) StartBetfair(c BetfairCredentials) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	admin, err := betfair.NewBetfairClient(c.Username, c.Password, c.AppKey, c.Cert)
+	if err != nil {
+		return fmt.Errorf("betfair admin: %w", err)
+	}
+	admin.StartTokenRefresh(e.ctx)
+	admin.StartTrackRefresh(e.ctx, betfairCountries)
+	admin.StartRunnerUpdates(e.ctx, e.closeMarket)
+
+	e.useBooks(admin)
+	return nil
+}
+
+func (e *Engine) useBooks(b Books) { e.admin.Store(&b) }
+
+// books returns the admin books, or nil before StartBetfair.
+func (e *Engine) books() Books {
+	if b := e.admin.Load(); b != nil {
+		return *b
+	}
+	return nil
+}
+
+// BetfairRace returns the catalogue's race, or nil when there is none or no admin account.
+func (e *Engine) BetfairRace(code betfair.RacingCode, country, track string, number int) *betfair.Race {
+	b := e.books()
+	if b == nil {
+		return nil
+	}
+	return b.GetRace(code, country, track, number)
+}
+
+// Account opens (or joins) the sessions a process needs and binds them with its user's claims.
+func (e *Engine) Account(key clients.ProcessKey, creds Credentials) (*Account, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	a := &Account{App: key.App, UserID: key.UserID, ProcessID: key.ProcessID}
+	c, _ := e.users.LoadOrStore(key.UserID, newClaims())
+	a := &Account{App: key.App, UserID: key.UserID, ProcessID: key.ProcessID, claims: c.(*claims)}
 
-	if c.Betmatic != nil {
-		client, err := claim(e.ctx, e.betmatic, key, c.Betmatic.Username, func() (*betmatic.Client, error) {
-			return betmatic.NewBetmaticClient(c.Betmatic.Username, c.Betmatic.Password)
-		})
+	if creds.Betmatic != nil {
+		client, err := e.joinBetmatic(key, *creds.Betmatic)
 		if err != nil {
 			return nil, err
 		}
 		a.betmatic = client
-		a.BotID = c.Betmatic.BotID
-		a.Bookmakers = c.Betmatic.Bookmakers
+		a.BotID = creds.Betmatic.BotID
+		a.Bookmakers = creds.Betmatic.Bookmakers
 	}
 
-	if c.Betfair != nil {
-		client, err := claim(e.ctx, e.betfair, key, c.Betfair.Username, func() (*betfair.Client, error) {
-			return betfair.NewBetfairClient(c.Betfair.Username, c.Betfair.Password, c.Betfair.AppKey, c.Betfair.Cert)
-		})
+	if creds.Betfair != nil {
+		client, err := e.joinBetfair(key, *creds.Betfair)
 		if err != nil {
-			release(e.betmatic, key)
+			leave(e.betmatic, key)
 			return nil, err
 		}
 		a.betfair = client
@@ -92,17 +118,16 @@ func (e *Engine) Account(key clients.ProcessKey, c Credentials) (*Account, error
 	return a, nil
 }
 
-// Release drops every session hold key has. A session with no holders left is
-// closed.
+// Release drops every session hold key has, closing sessions nobody holds.
 func (e *Engine) Release(key clients.ProcessKey) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	release(e.betmatic, key)
-	release(e.betfair, key)
+	leave(e.betmatic, key)
+	leave(e.betfair, key)
 }
 
-// Close logs every session out.
+// Close logs every session out, the admin account included.
 func (e *Engine) Close() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -115,4 +140,53 @@ func (e *Engine) Close() {
 		s.client.Close()
 		delete(e.betfair, alias)
 	}
+	if b := e.admin.Swap(nil); b != nil {
+		(*b).Close()
+	}
+}
+
+// joinBetmatic returns the pooled Betmatic session for c, held by key. Callers hold e.mu.
+func (e *Engine) joinBetmatic(key clients.ProcessKey, c BetmaticCredentials) (*betmatic.Client, error) {
+	return join(e.ctx, e.betmatic, key, c.Username, func() (*betmatic.Client, error) {
+		return betmatic.NewBetmaticClient(c.Username, c.Password)
+	})
+}
+
+// joinBetfair returns the pooled Betfair session for c, held by key. Callers hold e.mu.
+func (e *Engine) joinBetfair(key clients.ProcessKey, c BetfairCredentials) (*betfair.Client, error) {
+	return join(e.ctx, e.betfair, key, c.Username, func() (*betfair.Client, error) {
+		return betfair.NewBetfairClient(c.Username, c.Password, c.AppKey, c.Cert)
+	})
+}
+
+// closeMarket frees every claim on a market the stream reports closed.
+func (e *Engine) closeMarket(marketID string) {
+	for _, c := range e.allClaims() {
+		c.drop(marketID, time.Time{})
+	}
+}
+
+// expireClaims drops claims older than claimTTL every hour until the engine's context ends.
+func (e *Engine) expireClaims() {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			for _, c := range e.allClaims() {
+				c.drop("", time.Now().Add(-claimTTL))
+			}
+		case <-e.ctx.Done():
+			return
+		}
+	}
+}
+
+func (e *Engine) allClaims() []*claims {
+	var out []*claims
+	e.users.Range(func(_, c any) bool {
+		out = append(out, c.(*claims))
+		return true
+	})
+	return out
 }

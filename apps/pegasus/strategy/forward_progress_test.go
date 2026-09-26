@@ -103,12 +103,12 @@ func newFPRun(t *testing.T, code betmatic.RacingCode, distance int) *fpRun {
 	return &fpRun{
 		t:   t,
 		s:   NewForwardProgress(),
-		ref: core.RaceRef{Provider: core.ProviderTripleS, Key: "k", Scope: "AU/X", Code: code, Status: core.StatusRunning},
+		ref: core.RaceRef{Key: "k", Scope: "AU/X", Code: code, Status: core.StatusRunning},
 		get: func(core.RaceRef) *core.BetfairRace { return &core.BetfairRace{Distance: distance} },
 	}
 }
 
-func (r *fpRun) tick(m triples.RaceMessage, bfDelay, bmDelay int64) core.Decision {
+func (r *fpRun) tick(m triples.RaceMessage, bfDelay, bmDelay int64) []core.Bet {
 	r.t.Helper()
 	d, err := r.s.Select(m, r.ref, bfDelay, bmDelay, r.get)
 	if err != nil {
@@ -127,20 +127,20 @@ func TestForwardProgressDecisions(t *testing.T) {
 
 	t.Run("waits for each provider's delay, bets once", func(t *testing.T) {
 		r := newFPRun(t, betmatic.THOROUGHBRED, 1000)
-		if d := r.tick(start, 500, 1000); !d.Tracking || len(d.Bets) != 0 {
+		if d := r.tick(start, 500, 1000); len(d) != 0 {
 			t.Fatalf("first running message should only start the race: %+v", d)
 		}
-		if d := r.tick(early, 500, 1000); len(d.Bets) != 0 {
+		if d := r.tick(early, 500, 1000); len(d) != 0 {
 			t.Fatalf("bet before any delay: %+v", d)
 		}
 		d := r.tick(late, 500, 1000)
-		if len(d.Bets) != 3 { // betmatic win, betfair back, betfair lay
-			t.Fatalf("bets = %+v", d.Bets)
+		if len(d) != 3 { // betmatic win, betfair back, betfair lay
+			t.Fatalf("bets = %+v", d)
 		}
-		if d.Bets[0].Runner != best || d.Bets[0].Unit != 1 || d.Bets[2].Runner != worst {
-			t.Fatalf("best %d worst %d, bets %+v", best, worst, d.Bets)
+		if d[0].Runner != best || d[0].Unit != 1 || d[2].Runner != worst {
+			t.Fatalf("best %d worst %d, bets %+v", best, worst, d)
 		}
-		if d := r.tick(late, 500, 1000); len(d.Bets) != 0 {
+		if d := r.tick(late, 500, 1000); len(d) != 0 {
 			t.Fatalf("bet twice: %+v", d)
 		}
 	})
@@ -156,18 +156,18 @@ func TestForwardProgressDecisions(t *testing.T) {
 		} {
 			r := newFPRun(t, c.code, c.distance)
 			r.tick(start, 0, 0)
-			if d := r.tick(late, 0, 0); len(d.Bets) == 0 || d.Bets[0].Unit != c.unit {
-				t.Fatalf("%s %dm: %+v, want unit %v", c.code, c.distance, d.Bets, c.unit)
+			if d := r.tick(late, 0, 0); len(d) == 0 || d[0].Unit != c.unit {
+				t.Fatalf("%s %dm: %+v, want unit %v", c.code, c.distance, d, c.unit)
 			}
 		}
 	})
 
 	t.Run("long thoroughbreds and unknown codes are left alone", func(t *testing.T) {
 		for _, r := range []*fpRun{newFPRun(t, betmatic.THOROUGHBRED, 1600), newFPRun(t, betmatic.GREYHOUNDS, 500)} {
-			if d := r.tick(start, 0, 0); d.Tracking || len(d.Bets) != 0 {
+			if d := r.tick(start, 0, 0); len(d) != 0 {
 				t.Fatalf("%s: %+v", r.ref.Code, d)
 			}
-			if d := r.tick(late, 0, 0); d.Tracking || len(d.Bets) != 0 {
+			if d := r.tick(late, 0, 0); len(d) != 0 {
 				t.Fatalf("%s bet: %+v", r.ref.Code, d)
 			}
 		}
@@ -190,7 +190,7 @@ func BenchmarkForwardProgressTick(b *testing.B) {
 	start := field(rng, 12, t0, nil)
 	msg := field(rng, 12, t0.Add(time.Second), &start)
 	s := NewForwardProgress()
-	ref := core.RaceRef{Provider: core.ProviderTripleS, Key: "k", Code: betmatic.THOROUGHBRED, Status: core.StatusRunning}
+	ref := core.RaceRef{Key: "k", Code: betmatic.THOROUGHBRED, Status: core.StatusRunning}
 	get := func(core.RaceRef) *core.BetfairRace { return &core.BetfairRace{Distance: 1000} }
 	s.Select(start, ref, 1e12, 1e12, get)
 

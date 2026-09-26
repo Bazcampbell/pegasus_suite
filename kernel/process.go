@@ -32,7 +32,7 @@ func (k *Kernel) StartProcess(key clients.ProcessKey) error {
 	p.Start()
 	k.setState(key, clients.StateRunning)
 
-	logger.Info(logger.Log{Application: key.App, FormattedMessage: "started process", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Info(logger.Log{App: key.App, Message: "started process", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -47,7 +47,7 @@ func (k *Kernel) StopProcess(key clients.ProcessKey) error {
 	p.Stop()
 	k.setState(key, clients.StateStopped)
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "stopped process", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "stopped process", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -67,7 +67,7 @@ func (k *Kernel) RestartProcess(key clients.ProcessKey) error {
 	k.procs[key].Start()
 	k.setState(key, clients.StateRunning)
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "restarted process", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "restarted process", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -86,10 +86,10 @@ func (k *Kernel) DeleteProcess(key clients.ProcessKey) error {
 	k.eng.Release(key)
 
 	if err := k.store.Forget(key); err != nil {
-		logger.Warn(logger.Log{Application: key.App, FormattedMessage: fmt.Sprintf("unable to forget process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
+		logger.Warn(logger.Log{App: key.App, Message: fmt.Sprintf("unable to forget process state error=%v", err), UserID: key.UserID, ProcessID: key.ProcessID})
 	}
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "deleted process", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "deleted process", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -175,7 +175,7 @@ func (k *Kernel) addLocked(key clients.ProcessKey) error {
 	}
 	k.procs[key] = p
 
-	logger.Debug(logger.Log{Application: key.App, FormattedMessage: "added process", UserID: key.UserID, ProcessID: key.ProcessID})
+	logger.Debug(logger.Log{App: key.App, Message: "added process", UserID: key.UserID, ProcessID: key.ProcessID})
 	return nil
 }
 
@@ -188,17 +188,17 @@ func (k *Kernel) restoreProcessesLocked() {
 
 		refs, err := k.store.Processes(app.Name())
 		if err != nil {
-			logger.Warn(logger.Log{Application: app.Name(), FormattedMessage: fmt.Sprintf("%s: unable to list processes to restore error=%v", app.Name(), err)})
+			logger.Warn(logger.Log{App: app.Name(), Message: fmt.Sprintf("%s: unable to list processes to restore error=%v", app.Name(), err)})
 			continue
 		}
 
 		for _, ref := range refs {
 			if err := k.addLocked(ref.Key); err != nil {
 				logger.Warn(logger.Log{
-					Application:      ref.Key.App,
-					FormattedMessage: fmt.Sprintf("unable to restore process error=%v", err),
-					UserID:           ref.Key.UserID,
-					ProcessID:        ref.Key.ProcessID,
+					App:       ref.Key.App,
+					Message:   fmt.Sprintf("unable to restore process error=%v", err),
+					UserID:    ref.Key.UserID,
+					ProcessID: ref.Key.ProcessID,
 				})
 				continue
 			}
@@ -207,7 +207,7 @@ func (k *Kernel) restoreProcessesLocked() {
 			}
 		}
 
-		logger.Debug(logger.Log{Application: app.Name(), FormattedMessage: fmt.Sprintf("%s: restored processes count=%v", app.Name(), len(refs))})
+		logger.Debug(logger.Log{App: app.Name(), Message: fmt.Sprintf("%s: restored processes count=%v", app.Name(), len(refs))})
 	}
 }
 

@@ -16,6 +16,7 @@ type Store struct {
 	processes map[clients.ProcessKey]json.RawMessage
 	apps      map[string]json.RawMessage
 	states    map[clients.ProcessKey]clients.State
+	runtime   clients.State
 }
 
 func New() *Store {
@@ -107,3 +108,19 @@ func (s *Store) DeleteProcess(key clients.ProcessKey) error {
 }
 
 var _ clients.Store = (*Store)(nil)
+
+func (s *Store) Runtime() (clients.State, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.runtime == "" {
+		return clients.StateStopped, nil
+	}
+	return s.runtime, nil
+}
+
+func (s *Store) SetRuntime(state clients.State) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtime = state
+	return nil
+}

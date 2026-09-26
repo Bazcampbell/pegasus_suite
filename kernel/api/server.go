@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -46,7 +45,7 @@ func NewServer(port string, authCfg auth.Config, k *kernel.Kernel) (*Server, err
 }
 
 func (s *Server) Run() error {
-	slog.Info("api server starting", "port", s.port)
+	logger.Info(logger.Log{Message: "api server starting port=" + s.port})
 	if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -54,7 +53,7 @@ func (s *Server) Run() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	slog.Info("shutting down api server")
+	logger.Info(logger.Log{Message: "shutting down api server"})
 	return s.httpServer.Shutdown(ctx)
 }
 
@@ -149,10 +148,10 @@ func (s *Server) processOp(done string, op func(clients.ProcessKey) error) http.
 
 		if err := op(key); err != nil {
 			logger.Error(logger.Log{
-				Application:      key.App,
-				FormattedMessage: fmt.Sprintf("unable to %s process error=%v", r.PathValue("app")+" "+done, err),
-				UserID:           key.UserID,
-				ProcessID:        key.ProcessID,
+				App:       key.App,
+				Message:   fmt.Sprintf("unable to %s process error=%v", r.PathValue("app")+" "+done, err),
+				UserID:    key.UserID,
+				ProcessID: key.ProcessID,
 			})
 			http.Error(w, err.Error(), errStatus(err))
 			return
@@ -164,7 +163,7 @@ func (s *Server) processOp(done string, op func(clients.ProcessKey) error) http.
 func (s *Server) systemOp(done string, op func() error) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		if err := op(); err != nil {
-			logger.Error(logger.Log{FormattedMessage: fmt.Sprintf("unable to %s runtime error=%v", done, err)})
+			logger.Error(logger.Log{Message: fmt.Sprintf("unable to %s runtime error=%v", done, err)})
 			http.Error(w, err.Error(), errStatus(err))
 			return
 		}

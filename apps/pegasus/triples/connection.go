@@ -63,8 +63,8 @@ func connectMQTT(
 	}
 
 	logger.Debug(logger.Log{
-		Application:      core.AppName,
-		FormattedMessage: fmt.Sprintf("triple-s mqtt dial successful endpoint=%v region=%v client_id=%v", cfg.Endpoint, cfg.Region, cfg.ClientID),
+		App:     core.AppName,
+		Message: fmt.Sprintf("triple-s mqtt dial successful endpoint=%v region=%v client_id=%v", cfg.Endpoint, cfg.Region, cfg.ClientID),
 	})
 
 	return client, nil

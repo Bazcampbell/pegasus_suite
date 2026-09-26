@@ -6,12 +6,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"pegasus_suite/apps/davo"
 	"pegasus_suite/apps/pegasus"
 	"pegasus_suite/clients/doc"
 	"pegasus_suite/kernel"
@@ -21,6 +23,7 @@ import (
 	"pegasus_suite/platform/auth"
 	"pegasus_suite/platform/store"
 	"pegasus_suite/platform/util"
+	"pegasus_suite/report"
 
 	"github.com/joho/godotenv"
 )
@@ -38,11 +41,17 @@ type env struct {
 	telegram telegram.Config
 }
 
+// fatal logs msg and err, drains the logger and exits.
+func fatal(msg string, err error) {
+	logger.Error(logger.Log{Message: fmt.Sprintf("%s error=%v", msg, err)})
+	logger.Stop()
+	os.Exit(1)
+}
+
 func mustLevel(key string) slog.Level {
 	level, err := logger.ParseLevel(util.MustEnv(key))
 	if err != nil {
-		slog.Error("bad "+key, "error", err)
-		os.Exit(1)
+		fatal("bad "+key, err)
 	}
 	return level
 }
@@ -92,14 +101,13 @@ func main() {
 	// s3 or local dir
 	bucket, err := store.Open(ctx, cfg.settingsURL)
 	if err != nil {
-		slog.Error("unable to open settings bucket", "error", err)
-		os.Exit(1)
+		fatal("unable to open settings bucket", err)
 	}
 
 	// Telegram is optional: without it the logger still runs, stderr and ring.
 	var sinks []logger.Sink
 	if tg, err := telegram.New(cfg.telegram); err != nil {
-		slog.Warn("telegram logging unavailable", "error", err)
+		logger.Warn(logger.Log{Message: fmt.Sprintf("telegram logging unavailable error=%v", err)})
 	} else {
 		sinks = append(sinks, tg)
 	}
@@ -112,13 +120,19 @@ func main() {
 
 	// register applications
 	k.Register(pegasus.New())
+	k.Register(davo.New())
 
-	defer k.Stop()
+	defer k.Shutdown()
+
+	if err := k.Resume(); err != nil {
+		logger.Error(logger.Log{Message: fmt.Sprintf("runtime did not resume error=%v", err)})
+	}
+
+	report.Start(ctx, bucket, store, k)
 
 	server, err := api.NewServer(cfg.port, cfg.auth, k)
 	if err != nil {
-		slog.Error("unable to initialise api server", "error", err)
-		os.Exit(1)
+		fatal("unable to initialise api server", err)
 	}
 
 	serverErr := make(chan error, 1)
@@ -129,16 +143,16 @@ func main() {
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			slog.Error("server exited with error", "error", err)
+			logger.Error(logger.Log{Message: fmt.Sprintf("server exited error=%v", err)})
 		}
 	case <-ctx.Done():
-		slog.Info("shutdown signal received")
+		logger.Info(logger.Log{Message: "shutdown signal received"})
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		slog.Error("server shutdown error", "error", err)
+		logger.Error(logger.Log{Message: fmt.Sprintf("server shutdown error=%v", err)})
 	}
 }

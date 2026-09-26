@@ -18,15 +18,13 @@ type Record struct {
 	Application string          `json:"application"`
 	Message     string          `json:"message"`
 	UserID      string          `json:"user_id,omitempty"`
-	Username    string          `json:"username,omitempty"`
 	ProcessID   string          `json:"process_id,omitempty"`
-	Race        *RaceDetails    `json:"race,omitempty"`
-	Trace       json.RawMessage `json:"trace,omitempty"` // {package, function, file, line[, trace]}
+	Race        *Race           `json:"race,omitempty"`
+	Trace       json.RawMessage `json:"trace,omitempty"` // {package, function, file, line}
 	Request     json.RawMessage `json:"request,omitempty"`
 	Response    json.RawMessage `json:"response,omitempty"`
 
-	// the bet itself, set only for BetLog, for sinks that render it
-	// never reaches the ring, so never served.
+	// set only for a BetLog; bets never reach the ring
 	Bet *BetLog `json:"-"`
 }
 
@@ -38,12 +36,7 @@ func newRecord(p payload, level slog.Level, at time.Time, pc uintptr, applicatio
 		Message:     p.message(),
 	}
 	p.fill(&r)
-
-	var extra *string
-	if l, ok := p.(Log); ok {
-		extra = l.Trace
-	}
-	r.Trace = traceJSON(pc, extra)
+	r.Trace = traceJSON(pc)
 
 	if r.UserID == "" {
 		r.UserID = defaultUserID
@@ -51,18 +44,15 @@ func newRecord(p payload, level slog.Level, at time.Time, pc uintptr, applicatio
 	return r
 }
 
-// call site as {package, function, file, line} + trace
-func traceJSON(pc uintptr, extra *string) json.RawMessage {
-	m := make(map[string]any, 5)
+// traceJSON returns the call site as {package, function, file, line}.
+func traceJSON(pc uintptr) json.RawMessage {
+	m := make(map[string]any, 4)
 	if pc != 0 {
 		if f, _ := runtime.CallersFrames([]uintptr{pc}).Next(); f.Function != "" || f.File != "" {
 			m["package"], m["function"] = splitFuncName(f.Function)
 			m["file"] = f.File
 			m["line"] = f.Line
 		}
-	}
-	if extra != nil && *extra != "" {
-		m["trace"] = *extra
 	}
 	if len(m) == 0 {
 		return nil

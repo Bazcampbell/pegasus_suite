@@ -82,13 +82,13 @@ func (bc *Client) StartTokenRefresh(parent context.Context) {
 func (bc *Client) tickTokenRefresh() {
 	if err := bc.RefreshToken(); err != nil {
 		logger.Warn(logger.Log{
-			FormattedMessage: fmt.Sprintf("betmatic token refresh failed error=%v", err),
-			Request:          bc.Email,
+			Message: fmt.Sprintf("betmatic token refresh failed error=%v", err),
+			Request: bc.Email,
 		})
 		return
 	}
 	logger.Debug(logger.Log{
-		FormattedMessage: fmt.Sprintf("betmatic token refreshed request=%v", bc.Email),
+		Message: fmt.Sprintf("betmatic token refreshed request=%v", bc.Email),
 	})
 }
 
@@ -127,12 +127,12 @@ func (bc *Client) StartUpcomingEventsRefresh(parent context.Context, racingCode 
 		events, err := bc.UpdateUpcomingEventsMap(racingCode, countryCode)
 		if err != nil {
 			logger.Warn(logger.Log{
-				FormattedMessage: fmt.Sprintf("betmatic upcoming events refresh failed for %s %s ,error=%v", countryCode, string(racingCode), err),
+				Message: fmt.Sprintf("betmatic upcoming events refresh failed for %s %s ,error=%v", countryCode, string(racingCode), err),
 			})
 			return
 		}
 		logger.Debug(logger.Log{
-			FormattedMessage: fmt.Sprintf("betmatic upcoming events refreshed for %s % sresponse=%v", countryCode, string(racingCode), map[string]any{"event_count": len(events)}),
+			Message: fmt.Sprintf("betmatic upcoming events refreshed for %s % sresponse=%v", countryCode, string(racingCode), map[string]any{"event_count": len(events)}),
 		})
 	}
 

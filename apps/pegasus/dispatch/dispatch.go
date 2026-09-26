@@ -1,8 +1,4 @@
 // pegasus/dispatch/dispatch.go
-//
-// The application's half of placing a bet: name the race the way the
-// bookmakers do, attach the live Betfair book, and hand the engine an Order.
-// Everything about money and requests lives in the engine.
 
 package dispatch
 
@@ -10,49 +6,45 @@ import (
 	"pegasus_suite/apps/pegasus/core"
 	"pegasus_suite/apps/pegasus/settings"
 	"pegasus_suite/engine"
+	"pegasus_suite/logger"
 )
 
-const application = "pegasus"
-
 type Dispatcher struct {
-	eng      *engine.Engine
-	account  *engine.Account
-	settings settings.ProcessSettings
-
-	// nil when there is no Betfair price source (tests)
-	getBetfairRace func(core.RaceRef) *core.BetfairRace
+	eng         *engine.Engine
+	account     *engine.Account
+	betfairRace func(core.RaceRef) *core.BetfairRace
 }
 
-func New(eng *engine.Engine, account *engine.Account, s settings.ProcessSettings, getBetfairRace func(core.RaceRef) *core.BetfairRace) *Dispatcher {
-	return &Dispatcher{eng: eng, account: account, settings: s, getBetfairRace: getBetfairRace}
+func New(eng *engine.Engine, account *engine.Account, betfairRace func(core.RaceRef) *core.BetfairRace) *Dispatcher {
+	return &Dispatcher{eng: eng, account: account, betfairRace: betfairRace}
 }
 
-// Place runs on its own goroutine per bet, so the decision path is never
-// waiting on a bookmaker.
+// Place resolves b's Betmatic venue and Betfair IDs and hands the engine the order.
+// It blocks for the bookmaker, so callers run it on its own goroutine.
 func (d *Dispatcher) Place(b core.Bet, scope settings.ScopeSettings) {
-	ev := engine.Event{
-		Key:        b.Ref.Key,
-		VenueName:  b.Ref.VenueName,
-		RaceNumber: b.Ref.RaceNumber,
-		Country:    b.Ref.Country,
-		Code:       b.Ref.Code,
+	venue, mapped := core.BetmaticVenueFor(b.Ref.Venue)
+	if b.Side == core.BetmaticWin && !mapped {
+		logger.Error(logger.Log{App: core.AppName, UserID: d.account.UserID, ProcessID: d.account.ProcessID, Race: b.Ref.LogRace(), Message: "no betmatic venue for track; cannot bet"})
+		return
 	}
 
-	if v, ok := core.BetmaticVenueFor(b.Ref.Provider, b.Ref.Venue); ok {
-		ev.Betmatic = &v
-	}
-
-	if b.Side != core.BetmaticWin && d.getBetfairRace != nil {
-		ev.Betfair = d.getBetfairRace(b.Ref)
-	}
-
-	d.eng.Place(engine.Order{
+	o := engine.Order{
 		Account: d.account,
-		Event:   ev,
-		Side:    b.Side,
-		Runner:  b.Runner,
-		Unit:    b.Unit,
-		Stake:   scope.Stake,
-		Label:   application + "_" + d.settings.ID,
-	})
+		Race: engine.Race{
+			Date:   b.Ref.Date,
+			Venue:  b.Ref.VenueName,
+			Metro:  venue.IsMetro,
+			Code:   b.Ref.Code,
+			Number: b.Ref.RaceNumber,
+		},
+		Runner: b.Runner,
+		Side:   b.Side,
+		Unit:   b.Unit,
+		Stake:  scope.Stake,
+	}
+	if race := d.betfairRace(b.Ref); race != nil {
+		o.Race.MarketID = race.ID
+		o.SelectionID = race.Runners[b.Runner].SelectionID
+	}
+	d.eng.Place(o)
 }

@@ -48,7 +48,7 @@ type App interface {
 	Name() string
 	Start(ctx context.Context, h Host) error
 	Stop()
-	Status() error
+	Status() any
 	NewProcess(key clients.ProcessKey, settings json.RawMessage, h Host) (Process, error)
 
 	// returns a new value of the process settings type

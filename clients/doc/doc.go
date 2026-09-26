@@ -161,4 +161,32 @@ func (s *Store) Forget(key clients.ProcessKey) error {
 	return s.bucket.Delete(ctx, StateKey(key))
 }
 
+const runtimeKey = "state/runtime.json"
+
+func (s *Store) Runtime() (clients.State, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	data, err := s.bucket.Get(ctx, runtimeKey)
+	if errors.Is(err, store.ErrNotFound) {
+		return clients.StateStopped, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var d stateDoc
+	if err := json.Unmarshal(data, &d); err != nil {
+		return "", err
+	}
+	return d.State, nil
+}
+
+func (s *Store) SetRuntime(state clients.State) error {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	body, _ := json.Marshal(stateDoc{State: state})
+	return s.bucket.Put(ctx, runtimeKey, body)
+}
+
 var _ clients.Store = (*Store)(nil)

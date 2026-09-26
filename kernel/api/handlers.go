@@ -88,7 +88,7 @@ func (s *Server) handlePutAppSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.kernel.SaveAppSettings(name, doc); err != nil {
-		logger.Warn(logger.Log{FormattedMessage: fmt.Sprintf("%s settings not saved error=%v", name, err)})
+		logger.Warn(logger.Log{Message: fmt.Sprintf("%s settings not saved error=%v", name, err)})
 		http.Error(w, err.Error(), errStatus(err))
 		return
 	}

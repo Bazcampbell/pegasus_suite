@@ -147,9 +147,10 @@ type ListEventsResponse struct {
 }
 
 type MarketCatalogue struct {
-	MarketID   string            `json:"marketId"`
-	MarketName string            `json:"marketName"`
-	Runners    []CatalogueRunner `json:"runners"`
+	MarketID        string            `json:"marketId"`
+	MarketName      string            `json:"marketName"`
+	MarketStartTime time.Time         `json:"marketStartTime"`
+	Runners         []CatalogueRunner `json:"runners"`
 }
 
 type CatalogueRunner struct {
@@ -246,10 +247,11 @@ const (
 
 // 1000 max per request, last 90 days
 type ListClearedOrdersRequest struct {
-	BetStatus   BetStatus `json:"betStatus"`
-	BetIDs      []string  `json:"betIds,omitempty"`
-	FromRecord  int       `json:"fromRecord,omitempty"`
-	RecordCount int       `json:"recordCount,omitempty"`
+	BetStatus        BetStatus  `json:"betStatus"`
+	BetIDs           []string   `json:"betIds,omitempty"`
+	SettledDateRange *TimeRange `json:"settledDateRange,omitempty"`
+	FromRecord       int        `json:"fromRecord,omitempty"`
+	RecordCount      int        `json:"recordCount,omitempty"`
 }
 
 type ClearedOrderSummaryReport struct {

@@ -30,13 +30,15 @@ type Client struct {
 
 	Username string
 	password string
+	appKey   string
 
 	authOptions    *goreq.Options
 	bettingOptions *goreq.Options
+	orderOptions   *goreq.Options // no retries: a resent order could be a second bet
 }
 
 func New(username, password, appKey, cert string) (*Client, error) {
-	c := &Client{Username: username, password: password}
+	c := &Client{Username: username, password: password, appKey: appKey}
 
 	pem := []byte(cert)
 	keyPair, err := tls.X509KeyPair(pem, pem)
@@ -67,6 +69,8 @@ func New(username, password, appKey, cert string) (*Client, error) {
 
 	c.authOptions = newOptions("application/x-www-form-urlencoded")
 	c.bettingOptions = newOptions("application/json")
+	c.orderOptions = newOptions("application/json")
+	c.orderOptions.Retries = 0
 
 	if err := c.Login(); err != nil {
 		return nil, fmt.Errorf("failed to login: %w", err)
