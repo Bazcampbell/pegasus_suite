@@ -57,9 +57,11 @@ no lookups; logging from it is a non-blocking channel send.
   them.
 - **Prices** come from the admin Betfair account (`settings/apps/betfair.json`),
   started by the kernel with `eng.StartBetfair`. The catalogue refreshes
-  hourly (AU, 12 hours ahead); the Exchange Stream subscribes to AU
-  thoroughbred WIN markets starting within the next four hours (and up to an
-  hour past) and keeps three levels a side plus LTP per runner. The stream
+  hourly (AU horse racing, event type 7, 12 hours ahead; a meeting is
+  harness when a market name says "pace" or "trot"); the Exchange Stream
+  subscribes to every WIN market, thoroughbred and harness, starting within
+  the next four hours (and up to an hour past) and keeps three levels a side
+  plus LTP per runner. The stream
   goroutine is the only writer; `Place` reads a per-market snapshot with no
   lock. Reconnects back off from 1s to 30s and resume from the last clock.
 
@@ -81,8 +83,7 @@ type App interface {
 `AU/THOROUGHBRED` or `AU/HARNESS` scope. The forward-progress strategy picks
 the runner that has advanced furthest (Betmatic win, Betfair back) and least
 (Betfair lay) after each provider's delay; `dispatch` resolves the Betmatic
-venue and Betfair IDs and places. Harness races have no streamed prices, so
-their Betfair legs are skipped.
+venue and Betfair IDs and places.
 
 **DAVO.** Channel posts are parsed strictly and matched against Betmatic's
 upcoming events; anything that reads like a bet but does not parse goes to

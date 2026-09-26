@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	// the stream carries prices for thoroughbred races starting in this window
+	// the stream carries prices for races starting in this window
 	streamFrom = -1 * time.Hour
 	streamTo   = 4 * time.Hour
 	// the stream refuses a subscription over 200 markets
@@ -38,7 +38,7 @@ func eventKey(country, trackName string) string {
 	return strings.ToUpper(country) + ":" + betting.NormaliseTrackKey(trackName)
 }
 
-// setEvents replaces the catalogue and points the stream at its thoroughbred races near their start.
+// setEvents replaces the catalogue and points the stream at every race near its start.
 func (bc *Client) setEvents(events []Event) {
 	thoroughbred := make(map[string]*Event, len(events))
 	trot := make(map[string]*Event, len(events))
@@ -50,9 +50,9 @@ func (bc *Client) setEvents(events []Event) {
 		key := eventKey(event.Country, event.TrackName)
 		if event.Code == TROT {
 			trot[key] = event
-			continue
+		} else {
+			thoroughbred[key] = event
 		}
-		thoroughbred[key] = event
 		for _, race := range event.Races {
 			if race.StartTime.After(now.Add(streamFrom)) && race.StartTime.Before(now.Add(streamTo)) {
 				near = append(near, race)
