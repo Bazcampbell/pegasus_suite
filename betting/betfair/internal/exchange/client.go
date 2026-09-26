@@ -34,6 +34,7 @@ type Client struct {
 
 	authOptions    *goreq.Options
 	bettingOptions *goreq.Options
+	orderOptions   *goreq.Options // no retries: a resent order could be a second bet
 }
 
 func New(username, password, appKey, cert string) (*Client, error) {
@@ -68,6 +69,8 @@ func New(username, password, appKey, cert string) (*Client, error) {
 
 	c.authOptions = newOptions("application/x-www-form-urlencoded")
 	c.bettingOptions = newOptions("application/json")
+	c.orderOptions = newOptions("application/json")
+	c.orderOptions.Retries = 0
 
 	if err := c.Login(); err != nil {
 		return nil, fmt.Errorf("failed to login: %w", err)

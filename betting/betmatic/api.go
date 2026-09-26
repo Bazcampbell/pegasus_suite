@@ -46,6 +46,8 @@ func (bc *Client) RefreshToken() error {
 	return nil
 }
 
+// CreateNotification sends one bet request, once: goreq retries nothing unless asked, and a
+// resent notification could be a second bet.
 func (bc *Client) CreateNotification(req NotificationRequest) (notificationId string, err error) {
 	resp, err := goreq.Post(baseURL+"/notification/create/", req, bc.authHeaderOptions())
 	if err != nil {
