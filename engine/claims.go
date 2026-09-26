@@ -2,7 +2,6 @@
 //
 // Dedupe. A user's runner belongs to the first app that bets it: any process
 // of that app may bet it once per provider, and every other app is refused.
-// Once a bet is sent its claim stands, accepted or rejected.
 
 package engine
 
@@ -54,7 +53,7 @@ func (c *claims) take(a *Account, id, market string, provider betting.Provider) 
 	return true
 }
 
-// release undoes a take whose bet was never sent, freeing the runner when no other leg holds it.
+// release undoes a take whose bet failed, freeing the runner when no other leg holds it.
 func (c *claims) release(a *Account, id string, provider betting.Provider) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

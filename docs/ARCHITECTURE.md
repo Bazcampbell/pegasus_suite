@@ -51,7 +51,7 @@ no lookups; logging from it is a non-blocking channel send.
   the strategy ref; Betmatic gets the app name as the label.
 - **Dedupe** is per user. A runner belongs to the first app that bets it;
   every process of that app may bet it once per provider, and every other app
-  is refused (DEBUG log). A bet that was sent keeps its claim even if rejected, so it is never retried; one never sent (no price, no session) frees it. Claims live in
+  is refused (DEBUG log). A bet that fails frees its claim. Claims live in
   memory only: they clear when the stream reports the market `CLOSED`, or
   after 96 hours for bets with no Betfair market (DAVO). A restart forgets
   them.

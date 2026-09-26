@@ -24,13 +24,8 @@ type skipped string
 
 func (s skipped) Error() string { return string(s) }
 
-// rejected is a bet the bookmaker refused, or that failed after it was sent.
-type rejected struct{ error }
-
 // Place sends o to its provider unless nothing is staked or the runner is a duplicate for this
 // user. It blocks for the provider's round trip, so callers run it on its own goroutine.
-// A bet that was sent keeps its claim whatever the answer, so a rejected bet is never retried;
-// a bet that was never sent frees the runner.
 func (e *Engine) Place(o Order) {
 	defer logger.Recover("engine")
 	if !o.staked() {
@@ -55,12 +50,8 @@ func (e *Engine) Place(o Order) {
 		return
 	}
 
-	l := logger.Log{App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(), Message: fmt.Sprintf("%v not placed bet_id=%s: %v", o.Side, id, err)}
-	if errors.As(err, new(rejected)) {
-		logger.Error(l)
-		return
-	}
 	a.claims.release(a, id, provider)
+	l := logger.Log{App: a.App, UserID: a.UserID, ProcessID: a.ProcessID, Race: o.logRace(), Message: fmt.Sprintf("%v not placed bet_id=%s: %v", o.Side, id, err)}
 	if errors.As(err, new(skipped)) {
 		logger.Debug(l)
 		return
@@ -115,7 +106,7 @@ func (e *Engine) placeBetmatic(o Order, id string) error {
 
 	notificationID, err := a.betmatic.PlaceBet(req)
 	if err != nil {
-		return rejected{err}
+		return err
 	}
 
 	logger.Bet(logger.BetLog{
@@ -192,7 +183,7 @@ func (e *Engine) placeBetfair(o Order, id string) error {
 
 	betID, err := a.betfair.PlaceBet(req)
 	if err != nil {
-		return rejected{err}
+		return err
 	}
 
 	logger.Bet(logger.BetLog{
