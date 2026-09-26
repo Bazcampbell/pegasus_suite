@@ -126,14 +126,14 @@ func (e *Engine) placeBetfair(o Order, id string) error {
 	if a.betfair == nil {
 		return errors.New("process has no betfair session")
 	}
-	admin := e.admin.Load()
-	if admin == nil {
+	books := e.books()
+	if books == nil {
 		return errors.New("no admin betfair account for prices")
 	}
 	if o.Race.MarketID == "" || o.SelectionID == 0 {
 		return skipped("no betfair market for runner")
 	}
-	prices, ok := admin.Runner(o.Race.MarketID, o.SelectionID)
+	prices, ok := books.Runner(o.Race.MarketID, o.SelectionID)
 	if !ok {
 		return skipped("no betfair prices for runner")
 	}

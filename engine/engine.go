@@ -32,7 +32,14 @@ type Engine struct {
 	users sync.Map // user ID → *claims
 
 	// catalogue and live prices; nil until StartBetfair succeeds
-	admin atomic.Pointer[betfair.Client]
+	admin atomic.Pointer[Books]
+}
+
+// Books is where the engine reads Betfair races and live prices: the admin client, or a fake in tests.
+type Books interface {
+	GetRace(code betfair.RacingCode, country, track string, number int) *betfair.Race
+	Runner(marketID string, selectionID int64) (betfair.RunnerPrices, bool)
+	Close()
 }
 
 func New(ctx context.Context) *Engine {
@@ -58,17 +65,27 @@ func (e *Engine) StartBetfair(c BetfairCredentials) error {
 	admin.StartTrackRefresh(e.ctx, betfairCountries)
 	admin.StartRunnerUpdates(e.ctx, e.closeMarket)
 
-	e.admin.Store(admin)
+	e.useBooks(admin)
+	return nil
+}
+
+func (e *Engine) useBooks(b Books) { e.admin.Store(&b) }
+
+// books returns the admin books, or nil before StartBetfair.
+func (e *Engine) books() Books {
+	if b := e.admin.Load(); b != nil {
+		return *b
+	}
 	return nil
 }
 
 // BetfairRace returns the catalogue's race, or nil when there is none or no admin account.
 func (e *Engine) BetfairRace(code betfair.RacingCode, country, track string, number int) *betfair.Race {
-	admin := e.admin.Load()
-	if admin == nil {
+	b := e.books()
+	if b == nil {
 		return nil
 	}
-	return admin.GetRace(code, country, track, number)
+	return b.GetRace(code, country, track, number)
 }
 
 // Account opens (or joins) the sessions a process needs and binds them with its user's claims.
@@ -123,8 +140,8 @@ func (e *Engine) Close() {
 		s.client.Close()
 		delete(e.betfair, alias)
 	}
-	if admin := e.admin.Swap(nil); admin != nil {
-		admin.Close()
+	if b := e.admin.Swap(nil); b != nil {
+		(*b).Close()
 	}
 }
 
